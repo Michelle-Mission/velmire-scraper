@@ -1,0 +1,42 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "96mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+    restart: unless-stopped
+    mem_limit: 128m
+
+  cloudscraper:
+    build: ./services/cloudscraper
+    environment:
+      CLOUDSCRAPER_ALLOWED_HOSTS: ${ALLOWED_HOSTS:-www.lk21.de,dramamu.lk21.de,gudangvape.com,poster.assetsy.de}
+      CLOUDSCRAPER_TOKEN: ${CLOUDSCRAPER_TOKEN:-}
+      CLOUDSCRAPER_MAX_BYTES: "2000000"
+    restart: unless-stopped
+    mem_limit: 256m
+
+  api:
+    build: .
+    command: node dist/api/index.js
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      CLOUDSCRAPER_URL: http://cloudscraper:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+      - cloudscraper
+    restart: unless-stopped
+    mem_limit: 224m

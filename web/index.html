@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="id" data-bs-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LK21 Scraper</title>
+    <link rel="stylesheet" href="/bootstrap.min.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <nav class="navbar navbar-expand bg-body-tertiary border-bottom sticky-top" data-bs-theme="dark">
+      <div class="container-fluid">
+        <span class="navbar-brand mb-0 h1 d-flex align-items-center gap-2">
+          <span class="dot" id="health-dot" aria-hidden="true"></span>
+          LK21 Scraper
+        </span>
+        <span class="navbar-text small text-secondary" id="health-text">menghubungkan…</span>
+      </div>
+    </nav>
+
+    <main class="container-fluid py-3">
+      <ul class="nav nav-pills gap-2 mb-3" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-browse" type="button">
+            Jelajahi
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-api" type="button">
+            API
+          </button>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+        <div class="tab-pane fade show active" id="tab-browse" role="tabpanel">
+          <div class="row g-2 align-items-center mb-2">
+            <div class="col-12 col-lg-6">
+              <form id="search-form" class="input-group">
+                <input id="search-input" class="form-control" type="search" placeholder="Cari film / series…" autocomplete="off" />
+                <button class="btn btn-primary" type="submit">Cari</button>
+              </form>
+            </div>
+            <div class="col-12 col-lg-6">
+              <div class="d-flex flex-wrap gap-1 justify-content-lg-end" id="quick-bar">
+                <button class="btn btn-sm btn-outline-secondary" data-quick="home">Home</button>
+                <button class="btn btn-sm btn-outline-secondary" data-quick="latest">Terbaru</button>
+                <button class="btn btn-sm btn-outline-secondary" data-quick="popular">Populer</button>
+                <button class="btn btn-sm btn-outline-secondary" data-quick="rating">Rating</button>
+                <button class="btn btn-sm btn-outline-secondary" data-quick="release">Release</button>
+                <button class="btn btn-sm btn-outline-secondary" data-quick="series">Series</button>
+                <button class="btn btn-sm btn-outline-secondary" data-quick="genres">Genres</button>
+                <button class="btn btn-sm btn-outline-secondary" data-quick="countries">Countries</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <select id="site-type" class="form-select form-select-sm w-auto" title="Sumber untuk genre/negara/tahun">
+              <option value="movie">Situs: Film</option>
+              <option value="series">Situs: Series</option>
+            </select>
+            <h6 class="text-secondary mb-0" id="browse-title">Pilih menu atau cari judul.</h6>
+            <div class="btn-group btn-group-sm d-none ms-auto" id="pager" role="group">
+              <button class="btn btn-outline-secondary" id="page-prev" type="button">‹ Sebelumnya</button>
+              <button class="btn btn-outline-secondary disabled" id="page-info" type="button" tabindex="-1">hal. 1</button>
+              <button class="btn btn-outline-secondary" id="page-next" type="button">Berikutnya ›</button>
+            </div>
+          </div>
+
+          <div id="browse-results"></div>
+        </div>
+
+        <div class="tab-pane fade" id="tab-api" role="tabpanel">
+          <div class="row g-3">
+            <div class="col-12 col-xl-5">
+              <div class="card">
+                <div class="card-body">
+                  <h6 class="card-title">Request</h6>
+                  <p class="text-secondary small" id="endpoint-hint">Pilih endpoint lalu kirim.</p>
+                  <form id="request-form">
+                    <div class="mb-2">
+                      <select id="endpoint" class="form-select"></select>
+                    </div>
+                    <div class="mb-2">
+                      <input id="arg" class="form-control" type="text" placeholder="argumen" autocomplete="off" />
+                    </div>
+                    <div class="row g-2 mb-2">
+                      <div class="col">
+                        <label class="form-label small mb-0" for="page">page</label>
+                        <input id="page" class="form-control form-control-sm" type="number" min="1" value="1" />
+                      </div>
+                      <div class="col">
+                        <label class="form-label small mb-0" for="pages">pages</label>
+                        <input id="pages" class="form-control form-control-sm" type="number" min="1" value="1" />
+                      </div>
+                      <div class="col">
+                        <label class="form-label small mb-0" for="limit">limit</label>
+                        <input id="limit" class="form-control form-control-sm" type="number" min="1" value="24" />
+                      </div>
+                    </div>
+                    <button class="btn btn-primary w-100" type="submit">Kirim</button>
+                  </form>
+                  <div class="mt-3 small text-secondary">URL</div>
+                  <code class="d-block text-break" id="request-url">–</code>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-xl-7">
+              <div class="card">
+                <div class="card-body">
+                  <h6 class="card-title">Respons JSON</h6>
+                  <pre id="result-json" class="code mb-0">Belum ada permintaan.</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Detail -->
+    <div class="modal fade" id="detailModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="detail-title">Detail</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
+          </div>
+          <div class="modal-body" id="detail-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Nonton -->
+    <div class="modal fade" id="watchModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header py-2">
+            <h6 class="modal-title text-truncate" id="watch-title">Nonton</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
+          </div>
+          <div class="modal-body p-0">
+            <div class="ratio ratio-16x9 bg-black" id="watch-stage">
+              <iframe id="watch-frame" src="" allowfullscreen allow="autoplay; fullscreen; encrypted-media" referrerpolicy="no-referrer"></iframe>
+            </div>
+            <div class="ratio ratio-16x9 bg-black d-none" id="watch-video-stage">
+              <video id="watch-video" controls playsinline></video>
+            </div>
+            <div id="watch-message" class="p-4 text-center d-none"></div>
+          </div>
+          <div class="modal-footer justify-content-between py-2">
+            <span class="small text-secondary" id="watch-note"></span>
+            <a class="btn btn-sm btn-outline-secondary" id="watch-external" href="#" target="_blank" rel="noreferrer">
+              Buka di tab baru
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/bootstrap.bundle.min.js"></script>
+    <script src="/hls.min.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

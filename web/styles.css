@@ -1,0 +1,141 @@
+:root {
+  --poster-ratio: 2 / 3;
+}
+
+body {
+  background-color: #0d1117;
+}
+
+/* Health indicator ------------------------------------------------------- */
+.dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  display: inline-block;
+  background-color: #6c757d;
+}
+.dot.ok {
+  background-color: #198754;
+  box-shadow: 0 0 0 3px rgba(25, 135, 84, 0.25);
+}
+.dot.bad {
+  background-color: #dc3545;
+  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.25);
+}
+
+/* Section heading -------------------------------------------------------- */
+.section-head {
+  margin: 1.25rem 0 0.6rem;
+  padding-left: 0.6rem;
+  border-left: 3px solid var(--bs-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Poster cards ----------------------------------------------------------- */
+.poster-card {
+  height: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background-color: #161b22;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.poster-card:hover,
+.poster-card:focus-visible {
+  transform: translateY(-3px);
+  border-color: var(--bs-primary);
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.45);
+  outline: none;
+}
+
+.poster-media {
+  position: relative;
+  aspect-ratio: var(--poster-ratio);
+  background-color: #0b0f14;
+}
+.poster-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.poster-media .badge {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  text-transform: uppercase;
+}
+
+.poster-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6c757d;
+  font-size: 0.8rem;
+}
+
+.poster-body {
+  padding: 0.5rem 0.6rem 0.7rem;
+}
+.poster-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.poster-meta {
+  font-size: 0.75rem;
+  color: #9aa4b2;
+  margin-top: 0.25rem;
+}
+.poster-genres {
+  font-size: 0.72rem;
+  color: #6ea8fe;
+  margin-top: 0.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Detail modal ----------------------------------------------------------- */
+.detail-poster {
+  width: 150px;
+  flex: 0 0 150px;
+  border-radius: 0.5rem;
+  object-fit: cover;
+}
+@media (min-width: 576px) {
+  .detail-poster {
+    width: 180px;
+    flex-basis: 180px;
+  }
+}
+
+.episode-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* API explorer ----------------------------------------------------------- */
+.code {
+  background-color: #0b0f14;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  max-height: 60vh;
+  overflow: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#request-url {
+  font-size: 0.8rem;
+}

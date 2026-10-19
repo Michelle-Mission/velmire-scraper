@@ -1,0 +1,33 @@
+{
+  "totalPages": 2,
+  "data": [
+    {
+      "episode": 4,
+      "id": "123",
+      "is_complete": 0,
+      "poster": "2026/10/film-doctor-x-age-white-mafia-lk21.jpg",
+      "quality": "",
+      "rating": 9.5,
+      "runtime": "",
+      "season": 1,
+      "slug": "doctor-x-age-white-mafia-2026",
+      "title": "Doctor X: Age of the White Mafia (2026)",
+      "type": "series",
+      "year": 2026
+    },
+    {
+      "episode": null,
+      "id": "456",
+      "is_complete": 1,
+      "poster": "2026/10/film-kate-lk21.jpg",
+      "quality": "WEBDL",
+      "rating": 6,
+      "runtime": "01:02",
+      "season": null,
+      "slug": "kate-2026",
+      "title": "Kate (2026)",
+      "type": "movie",
+      "year": 2026
+    }
+  ]
+}
