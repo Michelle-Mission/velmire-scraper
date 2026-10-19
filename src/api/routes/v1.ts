@@ -70,7 +70,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
   app.get("/v1/home", async (request, reply) => {
     const q = (request.query ?? {}) as Record<string, unknown>;
     const limit = intParam(q.limit) ?? 0;
-    return respond(reply, () => getHome(app.redis, limit, parseContentType(strParam(q.type))));
+    return respond(reply, () => getHome(app.redis, limit));
   });
 
   app.get("/v1/latest", listHandler("latest"));

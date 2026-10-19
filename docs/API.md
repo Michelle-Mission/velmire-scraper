@@ -76,12 +76,13 @@ Mengembalikan setiap widget beranda sebagai satu section.
 Query: `limit` (opsional, membatasi jumlah item per section),
 `type` (opsional, `movie` default | `series`).
 
-> LK21 memisahkan **film** (`LK21_URL`) dan **series** (`LK21_SERIES_URL`).
-> Beranda default mengambil sisi film; pakai `type=series` untuk sisi series.
+> Semua endpoint memakai satu base: `LK21_URL` (`https://tv9.nontondrama.my`).
+> Parameter `type` tetap diterima demi kompatibilitas, tetapi beranda yang
+> tersedia adalah beranda tv9.
 >
-> Jika `LK21_URL` menunjuk domain promo/landing (mis. `d21.team`), API otomatis
-> mendeteksi halaman itu, mengikuti tautan ke situs asli, dan memakai origin
-> asli sehingga respons tidak lagi `null`. Hal yang sama berlaku untuk
+> Jika slug film dialihkan ke halaman promo/landing (mis. `d21.team`), API
+> mengikuti tautan ke situs asli sekali untuk mengambil data, lalu tetap
+> memancarkan URL `tv9`. Hal yang sama berlaku untuk
 > `?url=` yang berisi tautan landing.
 
 ```json
@@ -181,8 +182,8 @@ curl --get --data-urlencode 'url=https://www.lk21.de/kate-2026' \
 Response: `DetailResult`. `type` bernilai `"movie"` atau `"series"`.
 Untuk series, `seasons` berisi daftar episode per season.
 
-Bila slug film ternyata milik series, situs film menampilkan halaman
-pengalihan "Nontondrama"; API otomatis mengambil ulang dari `LK21_SERIES_URL`.
+Slug series dilayani langsung oleh tv9. Slug film yang dialihkan ke halaman
+promo tetap diikuti otomatis agar detailnya bisa diambil.
 
 ---
 
@@ -195,7 +196,7 @@ pengalihan "Nontondrama"; API otomatis mengambil ulang dari `LK21_SERIES_URL`.
 | `slug` | Slug episode, mis. `doctor-x-age-white-mafia-season-1-episode-1-2026` |
 | `url` | URL lengkap episode; divalidasi terhadap allowlist |
 
-Response: `EpisodeResult`. Episode selalu diambil dari `LK21_SERIES_URL`.
+Response: `EpisodeResult`. Episode diambil dari base `LK21_URL` (tv9).
 
 ---
 
@@ -377,7 +378,7 @@ curl --get --data-urlencode 'proxy=1' --data-urlencode 'url=<m3u8 atau segmen>' 
 | 400 | `redirect_blocked` | Redirect ke target yang tidak diizinkan |
 | 404 | `not_found` | Endpoint tidak dikenal |
 | 502 | `challenge_not_solved` | Challenge Cloudflare tidak terpecahkan |
-| 502 | `cloudscraper_unreachable` | Sidecar tidak berjalan / tidak dapat dihubungi. Jalankan `npm run py:start` |
+| 502 | `cloudscraper_unreachable` | Sidecar tidak berjalan / tidak dapat dihubungi. Jalankan `./run-web.sh` (sidecar ikut otomatis) |
 | 502 | `cloudscraper_error` | Sidecar mengembalikan error lain |
 | 502 | `stream_resolve_failed` | Gagal resolve player asli dari `/api.php` |
 | 502 | `media_fetch_failed` | Gagal memuat playlist/segmen dari sumber (mode proxy) |

@@ -36,10 +36,9 @@ const WEAK_CHALLENGE_MARKERS = ["challenge-platform", "turnstile"];
 
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 
-function guardOptions(extraHosts: string[] = []) {
-  const allowedHosts = extraHosts.length > 0 ? [...ALLOWED_HOSTS, ...extraHosts] : ALLOWED_HOSTS;
+function guardOptions() {
   return {
-    allowedHosts,
+    allowedHosts: ALLOWED_HOSTS,
     allowedPorts: config.ALLOWED_PORTS,
     allowPrivateHosts: config.ALLOW_PRIVATE_HOSTS,
   };
@@ -143,7 +142,7 @@ async function fetchViaCloudscraper(
     if (connectionIssue) {
       throw new ScrapeError(
         `Cloudflare challenge terdeteksi dan sidecar cloudscraper tidak dapat dihubungi di ` +
-          `${config.CLOUDSCRAPER_URL} (${code || raw}). Jalankan sidecar dengan "npm run py:start", ` +
+          `${config.CLOUDSCRAPER_URL} (${code || raw}). Jalankan "./run-web.sh" agar sidecar ikut hidup, ` +
           `atau set CLOUDSCRAPER_ENABLED=false untuk melewatinya.`,
         "cloudscraper_unreachable",
         502,
@@ -175,8 +174,6 @@ export interface FetchOptions {
   guard?: boolean;
   /** Extra request headers merged on top of the default browser headers. */
   headers?: Record<string, string>;
-  /** Extra hosts allowed by the guard (e.g. a mirror discovered at runtime). */
-  extraHosts?: string[];
 }
 
 /**
@@ -190,7 +187,7 @@ export async function fetchPage(
   let current = raw;
 
   if (options.guard) {
-    const guard = await validateUrl(raw, guardOptions(options.extraHosts));
+    const guard = await validateUrl(raw, guardOptions());
     if (!guard.ok) throw new ScrapeError(guard.reason, guard.code, 400);
     current = guard.url.toString();
   }
@@ -203,7 +200,7 @@ export async function fetchPage(
     if (REDIRECT_STATUS.has(response.status) && location) {
       const next = new URL(location, current).toString();
       if (options.guard) {
-        const guard = await validateUrl(next, { ...guardOptions(options.extraHosts), skipAllowlist: true });
+        const guard = await validateUrl(next, { ...guardOptions(), skipAllowlist: true });
         if (!guard.ok) {
           throw new ScrapeError(
             `Blocked redirect to ${next}: ${guard.reason}`,

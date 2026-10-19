@@ -57,35 +57,19 @@ Fitur utama:
 
 Butuh Node.js >= 20, Redis, dan Python 3 (untuk sidecar).
 
-```bash
-cp .env.example .env
-npm install
-
-# Redis
-npm run redis:start            # atau: redis-server
-
-# Sidecar (opsional; hanya dipakai saat kena challenge)
-npm run py:install
-npm run py:start
-
-# API
-npm run dev:api                # tsx watch
-# atau produksi
-npm run build && npm run start:api
-```
-
-Buka <http://localhost:3000> untuk UI penguji. Cek `GET /v1/health`.
-
-### Cepat (satu perintah)
+Cukup satu perintah; semua service dinyalakan otomatis:
 
 ```bash
-./run-web.sh                 # siapkan .env, jalankan Redis + API dev
-./run-web.sh --prod          # build lalu jalankan hasil build
-./run-web.sh --cloudscraper  # sekalian jalankan sidecar Python
+./run-web.sh          # dev: Redis + cloudscraper + API
+./run-web.sh --prod   # build lalu jalankan semuanya
+# atau lewat npm
+npm run dev
+npm start
 ```
 
-Script akan membuat `.env` bila belum ada, menyalakan Redis (bila belum jalan),
-lalu mencetak URL UI. Tekan Ctrl+C untuk berhenti.
+Script akan membuat `.env` bila belum ada, menyalakan Redis, memasang/menjalankan
+sidecar cloudscraper, lalu API. Tekan Ctrl+C untuk mematikan API dan sidecar.
+Buka <http://localhost:3000> untuk UI penguji, cek `GET /v1/health`.
 
 ### Docker
 
@@ -105,31 +89,36 @@ Semua lewat environment (lihat `.env.example`):
 | --- | --- | --- |
 | `PORT` | `3000` | Port API |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis untuk cache |
-| `LK21_URL` | `https://www.lk21.de` | Base URL situs **film** (domain sering berganti) |
-| `LK21_SERIES_URL` | `https://dramamu.lk21.de` | Base URL situs **series** (Nontondrama) |
+| `LK21_URL` | `https://tv9.nontondrama.my` | Satu-satunya base sumber yang dipakai semua endpoint |
 | `LK21_SEARCH_URL` | `https://gudangvape.com/` | Base URL endpoint JSON pencarian |
 | `LK21_POSTER_URL` | `https://poster.assetsy.de/wp-content/uploads/` | Prefix poster relatif hasil pencarian |
 | `ALLOWED_HOSTS` | _(kosong)_ | Allowlist host; kosong = otomatis dari host LK21 |
 | `ALLOW_PRIVATE_HOSTS` | `false` | Izinkan host privat (hanya untuk tes lokal) |
 | `CLOUDSCRAPER_ENABLED` | `true` | Pakai sidecar saat kena challenge |
 | `CLOUDSCRAPER_URL` | `http://127.0.0.1:8000` | Alamat sidecar |
+| `CLOUDSCRAPER_ALLOWED_HOSTS` | _tv9/lk21/gudangvape/player_ | Host yang boleh di-fetch sidecar (`*.domain` didukung) |
+| `CLOUDSCRAPER_MAX_BYTES` | `2000000` | Batas ukuran respons sidecar |
+| `CLOUDSCRAPER_BROWSER` | `chrome` | Profil browser: `chrome`, `firefox`, `native` |
+| `CLOUDSCRAPER_DELAY` | `0` | Jeda (detik) saat menyelesaikan challenge |
+| `CLOUDSCRAPER_TOKEN` | _(kosong)_ | Token `X-Auth-Token` antara API dan sidecar |
 | `CACHE_TTL_SECONDS` | `1800` | TTL cache |
 | `MAX_PAGES_PER_REQUEST` | `20` | Batas `pages` per request |
 | `DEFAULT_LIST_LIMIT` | `24` | `limit` default |
 
-> **Film dan series dipisah oleh LK21.** `www.lk21.de` (film) otomatis redirect
-> ke mirror resmi yang aktif (mis. `tv12.lk21official.cc`) dan hanya menyajikan
-> film; series ada di `dramamu.lk21.de` (alias `tv9.nontondrama.my`). Karena itu
-> ada dua base: `LK21_URL` untuk film dan `LK21_SERIES_URL` untuk series.
-> `/v1/latest` membaca sisi film sedangkan `/v1/series` membaca sisi series,
-> jadi keduanya tidak lagi menampilkan data yang sama.
+> **Satu base untuk semua endpoint.** `LK21_URL` sekarang hanya boleh menunjuk
+> `https://tv9.nontondrama.my`; tidak ada base series terpisah. Semua URL yang
+> dipancarkan endpoint (list, detail, episode, pencarian) memakai host ini.
 >
-> **Domain promo / landing page.** Beberapa domain yang beredar (mis.
-> `d21.team`) hanya menyajikan halaman promosi yang mengarahkan ke situs asli.
-> Saat `LK21_URL` menunjuk domain seperti itu, API mendeteksi landing page,
-> mengikuti tautan "ke halaman LK21", dan memakai origin asli (mis.
-> `https://www.lk21.de`) untuk semua endpoint — termasuk saat `?url=` berisi
-> tautan landing.
+> **Detail film lewat tv9.** Slug film di tv9 dialihkan ke halaman promo
+> (`d21.team`) yang menautkan ke situs film asli. API mengikuti tautan itu
+> sekali untuk mengambil data, lalu tetap memancarkan URL `tv9` agar klien hanya
+> melihat satu domain.
+>
+> **Cloudscraper.** Sidecar hanya dipanggil saat request langsung mendeteksi
+> challenge Cloudflare. Konfigurasi di atas memperbaiki profil browser, referer,
+> dan cookie session. cloudscraper mampu melewati challenge JS/IUAM lama, tetapi
+> **bukan** Turnstile/CAPTCHA interaktif; jika challenge tetap muncul, API
+> mengembalikan `challenge_not_solved`.
 
 ---
 
@@ -141,15 +130,15 @@ Base path: `/v1`. Detail lengkap ada di [`docs/API.md`](docs/API.md).
 | --- | --- |
 | `GET /v1/health` | Status Redis + sidecar |
 | `GET /v1/home` | Bagian-bagian beranda |
-| `GET /v1/latest` | Film terbaru |
-| `GET /v1/popular` | Film populer |
-| `GET /v1/rating` | Rating tertinggi |
-| `GET /v1/release` | Rilis terbaru |
+| `GET /v1/latest` | Konten terbaru (tv9) |
+| `GET /v1/popular` | Konten populer (tv9) |
+| `GET /v1/rating` | Rating tertinggi (tv9) |
+| `GET /v1/release` | Rilis terbaru (tv9) |
 | `GET /v1/series` | Series terbaru |
 | `GET /v1/search?q=` | Pencarian |
-| `GET /v1/genre/:slug` | Film/series per genre (`?type=series` untuk situs series) |
-| `GET /v1/country/:slug` | Film/series per negara (`?type=series`) |
-| `GET /v1/year/:year` | Film/series per tahun (`?type=series`) |
+| `GET /v1/genre/:slug` | Konten tv9 per genre |
+| `GET /v1/country/:slug` | Konten tv9 per negara |
+| `GET /v1/year/:year` | Konten tv9 per tahun |
 | `GET /v1/movie?url=\|?slug=` | Detail film/series |
 | `GET /v1/episode?url=\|?slug=` | Detail episode |
 | `GET /v1/stream?url=` | Resolve player (`iframe3`) → info + `hls`; atau proxy media (`proxy=1`): rewrite playlist / byte segmen (dukung Range) |

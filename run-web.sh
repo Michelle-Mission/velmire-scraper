@@ -1,29 +1,25 @@
 #!/usr/bin/env bash
 #
-# run-web.sh - jalankan UI web + API LK21 dengan satu perintah.
+# run-web.sh - jalankan semua service (Redis + cloudscraper + API/UI).
 #
-# Menyiapkan: .env (bila belum ada), Redis, opsional sidecar cloudscraper,
-# lalu menjalankan API. UI tersedia di http://localhost:<PORT>.
+# Satu perintah menyalakan seluruh sistem: .env (bila belum ada), Redis,
+# sidecar cloudscraper, lalu API. UI tersedia di http://localhost:<PORT>.
 #
 # Pemakaian:
-#   ./run-web.sh                 # mode dev (tsx watch)
-#   ./run-web.sh --prod          # build lalu jalankan hasil build
-#   ./run-web.sh --cloudscraper  # sekalian jalankan sidecar Python
-#   WITH_CLOUDSCRAPER=1 ./run-web.sh
+#   ./run-web.sh          # mode dev (tsx watch)
+#   ./run-web.sh --prod   # build lalu jalankan hasil build
 #
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 MODE="dev"
-WITH_CLOUDSCRAPER="${WITH_CLOUDSCRAPER:-0}"
 RUN_DIR=".run"
 REDIS_PORT="${REDIS_PORT:-6379}"
 
 for arg in "$@"; do
   case "$arg" in
     --prod) MODE="prod" ;;
-    -c|--cloudscraper) WITH_CLOUDSCRAPER="1" ;;
     -h|--help)
       awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "$0"
       exit 0
@@ -33,8 +29,23 @@ for arg in "$@"; do
 done
 
 log()  { printf '\033[1;32m[run-web]\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[run-web]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[run-web]\033[0m %s\n' "$*" >&2; exit 1; }
+
+env_or_file() {
+  local value
+  value="$(printenv "$1" 2>/dev/null || true)"
+  if [ -z "$value" ]; then
+    value="$(sed -n "s/^$1=//p" .env 2>/dev/null | tail -1)"
+  fi
+  printf '%s' "$value"
+}
+
+export_env() {
+  local value
+  value="$(env_or_file "$1")"
+  [ -n "$value" ] && export "$1=$value"
+  return 0
+}
 
 command -v node >/dev/null 2>&1 || die "Node.js tidak ditemukan. Install dulu (mis. pkg install nodejs)."
 command -v npm  >/dev/null 2>&1 || die "npm tidak ditemukan."
@@ -65,16 +76,45 @@ else
   die "redis-server tidak ditemukan. Install dulu (mis. pkg install redis)."
 fi
 
-# --- Sidecar cloudscraper (opsional) --------------------------------------
+# --- Sidecar cloudscraper (selalu jalan) ----------------------------------
+SIDECAR_URL="${CLOUDSCRAPER_URL:-$(sed -n 's/^CLOUDSCRAPER_URL=//p' .env 2>/dev/null | tail -1)}"
+SIDECAR_URL="${SIDECAR_URL:-http://127.0.0.1:8000}"
+SIDECAR_PORT="$(printf '%s' "$SIDECAR_URL" | sed -nE 's#^.*:([0-9]+)/?.*$#\1#p')"
+SIDECAR_PORT="${SIDECAR_PORT:-8000}"
+export CLOUDSCRAPER_PORT="$SIDECAR_PORT"
+export_env CLOUDSCRAPER_ALLOWED_HOSTS
+export_env CLOUDSCRAPER_TOKEN
+export_env CLOUDSCRAPER_MAX_BYTES
+export_env CLOUDSCRAPER_BROWSER
+export_env CLOUDSCRAPER_DELAY
+
+cloudscraper_up() {
+  python3 - "$SIDECAR_URL/health" <<'PY' >/dev/null 2>&1
+import sys, urllib.request
+urllib.request.urlopen(sys.argv[1], timeout=2).read()
+PY
+}
+
 SIDECAR_PID=""
-if [ "$WITH_CLOUDSCRAPER" = "1" ]; then
-  if command -v python3 >/dev/null 2>&1; then
-    log "Menjalankan sidecar cloudscraper (log: $RUN_DIR/cloudscraper.log)"
-    python3 services/cloudscraper/main.py >"$RUN_DIR/cloudscraper.log" 2>&1 &
-    SIDECAR_PID=$!
-  else
-    warn "python3 tidak ditemukan; sidecar cloudscraper dilewati."
+if cloudscraper_up; then
+  log "Cloudscraper sudah jalan di $SIDECAR_URL"
+else
+  if ! python3 -c "import cloudscraper" >/dev/null 2>&1; then
+    log "Memasang dependency cloudscraper..."
+    python3 -m pip install -r services/cloudscraper/requirements.txt >/dev/null
   fi
+  log "Menjalankan sidecar cloudscraper di port $SIDECAR_PORT (log: $RUN_DIR/cloudscraper.log)"
+  python3 services/cloudscraper/main.py >"$RUN_DIR/cloudscraper.log" 2>&1 &
+  SIDECAR_PID=$!
+  for _ in $(seq 1 30); do
+    cloudscraper_up && break
+    sleep 0.5
+  done
+  if ! cloudscraper_up; then
+    tail -n 20 "$RUN_DIR/cloudscraper.log" >&2 || true
+    die "Cloudscraper gagal start."
+  fi
+  log "Cloudscraper siap."
 fi
 
 # --- API ------------------------------------------------------------------

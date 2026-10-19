@@ -19,9 +19,11 @@ services:
   cloudscraper:
     build: ./services/cloudscraper
     environment:
-      CLOUDSCRAPER_ALLOWED_HOSTS: ${ALLOWED_HOSTS:-www.lk21.de,dramamu.lk21.de,gudangvape.com,poster.assetsy.de}
+      CLOUDSCRAPER_ALLOWED_HOSTS: ${CLOUDSCRAPER_ALLOWED_HOSTS:-*.nontondrama.my,*.lk21.de,*.lk21official.cc,d21.team,gudangvape.com,*.assetsy.de,videonode.de,playcdn.de,dadadidi.de}
+      CLOUDSCRAPER_BROWSER: ${CLOUDSCRAPER_BROWSER:-chrome}
+      CLOUDSCRAPER_DELAY: ${CLOUDSCRAPER_DELAY:-0}
+      CLOUDSCRAPER_MAX_BYTES: ${CLOUDSCRAPER_MAX_BYTES:-2000000}
       CLOUDSCRAPER_TOKEN: ${CLOUDSCRAPER_TOKEN:-}
-      CLOUDSCRAPER_MAX_BYTES: "2000000"
     restart: unless-stopped
     mem_limit: 256m
 

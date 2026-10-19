@@ -45,10 +45,8 @@ const schema = z.object({
 
   REDIS_URL: z.string().default("redis://127.0.0.1:6379"),
 
-  /** Base URL of the LK21 (LayarKaca21) MOVIE source to scrape. */
-  LK21_URL: z.string().default("https://www.lk21.de"),
-  /** Base URL of the LK21 SERIES source (Nontondrama) to scrape. */
-  LK21_SERIES_URL: z.string().default("https://dramamu.lk21.de"),
+  /** Base URL of the single LK21 source to scrape (tv9 / Nontondrama). */
+  LK21_URL: z.string().default("https://tv9.nontondrama.my"),
   /** Base URL that serves the JSON search endpoint (`search.php`). */
   LK21_SEARCH_URL: z.string().default("https://gudangvape.com/"),
   /** Base URL for relative poster paths returned by the search API. */
@@ -108,14 +106,13 @@ if (!parsed.success) {
 export const config = parsed.data;
 
 export const LK21_BASE = withoutTrailingSlash(config.LK21_URL);
-export const LK21_SERIES_BASE = withoutTrailingSlash(config.LK21_SERIES_URL);
 export const LK21_SEARCH_BASE = withTrailingSlash(config.LK21_SEARCH_URL);
 export const LK21_POSTER_BASE = withTrailingSlash(config.LK21_POSTER_URL);
 
 function resolveAllowedHosts(): string[] {
   if (config.ALLOWED_HOSTS.length > 0) return config.ALLOWED_HOSTS;
   const hosts = new Set<string>();
-  for (const base of [LK21_BASE, LK21_SERIES_BASE, LK21_SEARCH_BASE, LK21_POSTER_BASE]) {
+  for (const base of [LK21_BASE, LK21_SEARCH_BASE, LK21_POSTER_BASE]) {
     const host = hostOf(base);
     if (host) hosts.add(host);
   }

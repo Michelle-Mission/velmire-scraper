@@ -66,9 +66,23 @@ CHALLENGE_MARKERS = (
     "cf_challenge",
     "attention required",
     "enable javascript and cookies",
+)
+
+# These strings also appear on healthy Cloudflare pages (e.g. the jsd script),
+# so they only count as a challenge when the status is suspicious.
+WEAK_CHALLENGE_MARKERS = (
     "challenge-platform",
     "turnstile",
 )
+
+BROWSERS = {"chrome", "firefox", "native"}
+BROWSER = os.environ.get("CLOUDSCRAPER_BROWSER", "chrome").strip().lower()
+if BROWSER not in BROWSERS:
+    BROWSER = "chrome"
+try:
+    DELAY = max(0.0, float(os.environ.get("CLOUDSCRAPER_DELAY", "0") or 0))
+except ValueError:
+    DELAY = 0.0
 
 _scraper: Optional[Any] = None
 _scraper_lock = threading.Lock()
@@ -79,7 +93,16 @@ def get_scraper() -> Any:
     if _scraper is None:
         with _scraper_lock:
             if _scraper is None:
-                _scraper = cloudscraper.create_scraper()
+                options: dict[str, Any] = {
+                    "browser": {
+                        "browser": BROWSER,
+                        "platform": "windows",
+                        "mobile": False,
+                    },
+                }
+                if DELAY > 0:
+                    options["delay"] = DELAY
+                _scraper = cloudscraper.create_scraper(**options)
     return _scraper
 
 
@@ -120,13 +143,14 @@ def assert_safe_url(url: str) -> None:
 
 def detect_challenge(status_code: int, headers: dict[str, Any], body: str) -> dict[str, Any]:
     lowered = body[:30000].lower()
-    marker = any(needle in lowered for needle in CHALLENGE_MARKERS)
-    header_keys = {key.lower() for key in headers}
-    cf_ray = "cf-ray" in header_keys
-    mitigated = str(headers.get("cf-mitigated", "")).lower()
+    header_map = {str(key).lower(): str(value) for key, value in headers.items()}
+    strong = any(needle in lowered for needle in CHALLENGE_MARKERS)
+    weak = any(needle in lowered for needle in WEAK_CHALLENGE_MARKERS)
+    cf_ray = "cf-ray" in header_map
+    mitigated = header_map.get("cf-mitigated", "").lower()
     suspicious = status_code in (403, 429, 503)
-    detected = marker or mitigated == "challenge" or (cf_ray and suspicious)
-    solved = not marker and status_code < 400
+    detected = strong or mitigated == "challenge" or (cf_ray and suspicious) or (weak and suspicious)
+    solved = not strong and status_code < 400
     return {
         "detected": detected,
         "solved": solved,
@@ -183,6 +207,9 @@ def do_fetch(payload: dict[str, Any], token: Optional[str]) -> tuple[int, dict[s
     extra = payload.get("headers")
     if isinstance(extra, dict):
         headers.update({str(k): str(v) for k, v in extra.items()})
+    if not any(key.lower() == "referer" for key in headers):
+        target = urlparse(url)
+        headers["Referer"] = f"{target.scheme}://{target.netloc}/"
 
     challenge_fail = {"detected": True, "solved": False, "type": "cloudflare"}
     try:
@@ -247,6 +274,8 @@ class Handler(BaseHTTPRequestHandler):
                     "status": "ok",
                     "engine": "cloudscraper",
                     "cloudscraper_version": getattr(cloudscraper, "__version__", "unknown"),
+                    "browser": BROWSER,
+                    "delay": DELAY,
                     "allowlist_configured": bool(ALLOWED_HOSTS),
                     "auth_required": bool(AUTH_TOKEN),
                 },

@@ -43,7 +43,6 @@ function readFixture(name: string): string {
 suite("velmire-scraper v1 API", () => {
   let redis: ChildProcess | undefined;
   let mock: Server | undefined;
-  let seriesMock: Server | undefined;
   let app: FastifyInstance | undefined;
   let mockBase = "";
 
@@ -66,13 +65,12 @@ suite("velmire-scraper v1 API", () => {
     const episodeHtml = readFixture("episode.html");
     const searchJson = readFixture("search.json");
 
-    // The movie site renders a "redirecting to Nontondrama" page for series
-    // slugs. It also loads Cloudflare's `/cdn-cgi/challenge-platform` script on
-    // regular pages, which must NOT be mistaken for a real challenge.
-    const interstitialHtml =
-      `<!doctype html><html><head><title>Mengalihkan ke nontondrama</title></head><body>` +
-      `<p>Anda akan dialihkan ke Lk21 Nontondrama dalam 5 detik</p>` +
-      `<a href="https://dramamu.lk21.de/redirect-series-2026">lanjut</a>` +
+    // A movie slug on tv9 redirects to a promo landing page that links to the
+    // real detail page. The API must follow that link once.
+    const landingHtml =
+      `<!doctype html><html><head><title>Jangan Tertipu Link Lk21 Abal-Abal</title></head><body>` +
+      `<a class="cta-button" href="https://www.lk21.de/">KE HALAMAN UTAMA LK21</a>` +
+      `<a class="cta-button" href="${mockBase}/kate-2026">KLIK UNTUK MELANJUTKAN</a>` +
       `<script>a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'</script>` +
       `</body></html>`;
 
@@ -128,8 +126,9 @@ suite("velmire-scraper v1 API", () => {
       if (path === "/") return send(res, homeHtml);
       if (path === "/search.php") return send(res, searchJson, "application/json");
       if (path === "/doctor-x-age-white-mafia-2026") return send(res, seriesHtml);
+      if (path === "/doctor-x-age-white-mafia-2026-episode-1") return send(res, episodeHtml);
       if (path === "/kate-2026") return send(res, movieHtml);
-      if (path === "/redirect-series-2026") return send(res, interstitialHtml);
+      if (path === "/promo-movie-2026") return send(res, landingHtml);
       if (listPaths(path)) return send(res, listHtml);
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("not found");
@@ -138,25 +137,11 @@ suite("velmire-scraper v1 API", () => {
     const mockPort = (mock.address() as AddressInfo).port;
     mockBase = `http://127.0.0.1:${mockPort}`;
 
-    seriesMock = createServer((req, res) => {
-      const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-      if (path === "/") return send(res, homeHtml);
-      if (path === "/doctor-x-age-white-mafia-2026") return send(res, seriesHtml);
-      if (path === "/doctor-x-age-white-mafia-2026-episode-1") return send(res, episodeHtml);
-      if (path === "/redirect-series-2026") return send(res, seriesHtml);
-      if (listPaths(path)) return send(res, listHtml);
-      res.writeHead(404, { "content-type": "text/plain" });
-      res.end("not found");
-    });
-    await new Promise<void>((resolve) => seriesMock?.listen(0, "127.0.0.1", resolve));
-    const seriesPort = (seriesMock.address() as AddressInfo).port;
-
     process.env.LK21_URL = mockBase;
-    process.env.LK21_SERIES_URL = `http://127.0.0.1:${seriesPort}`;
     process.env.LK21_SEARCH_URL = `${mockBase}/`;
     process.env.LK21_POSTER_URL = `${mockBase}/uploads/`;
     process.env.ALLOWED_HOSTS = "127.0.0.1";
-    process.env.ALLOWED_PORTS = `${mockPort},${seriesPort}`;
+    process.env.ALLOWED_PORTS = String(mockPort);
 
     const { buildApp } = await import("../src/api/app");
     app = await buildApp();
@@ -166,7 +151,6 @@ suite("velmire-scraper v1 API", () => {
   afterAll(async () => {
     if (app) await app.close().catch(() => undefined);
     if (mock) await new Promise<void>((resolve) => mock?.close(() => resolve()));
-    if (seriesMock) await new Promise<void>((resolve) => seriesMock?.close(() => resolve()));
     if (redis) redis.kill("SIGKILL");
   }, 30000);
 
@@ -253,15 +237,15 @@ suite("velmire-scraper v1 API", () => {
     expect(body.streams).toHaveLength(2);
   });
 
-  it("falls back to the series site for series slugs", async () => {
+  it("follows a promo landing page to the movie detail", async () => {
     const res = await app!.inject({
       method: "GET",
-      url: "/v1/movie?slug=redirect-series-2026",
+      url: "/v1/movie?slug=promo-movie-2026",
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.type).toBe("series");
-    expect(body.seasons).toHaveLength(1);
+    expect(body.type).toBe("movie");
+    expect(body.streams).toHaveLength(2);
   });
 
   it("resolves a stream and flags embeddable players", async () => {
