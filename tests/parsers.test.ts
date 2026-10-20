@@ -7,6 +7,7 @@ import {
   parseHome,
   parseLanding,
   parseList,
+  parseNav,
   parseTaxonomyLinks,
 } from "../src/lk21/parsers";
 
@@ -162,6 +163,7 @@ describe("parseDetail (movie)", () => {
     expect(result.streams).toEqual([
       { server: "p2p", url: "https://stream.example/p2p" },
       { server: "cast", url: "https://stream.example/cast" },
+      { server: "turbovip", url: "https://stream.example/turbovip" },
     ]);
     expect(result.downloadUrl).toBe("https://dadadidi.de/kate-2026/");
     expect(result.playFirst).toBeNull();
@@ -190,10 +192,60 @@ describe("parseEpisode", () => {
     expect(result.next).toMatchObject({
       season: 1,
       episode: 2,
+      title: "Doctor X Episode 2",
       slug: "doctor-x-age-white-mafia-2026-episode-2",
       url: `${BASE}/doctor-x-age-white-mafia-2026-episode-2`,
     });
+    expect(result.prev).toBeNull();
     expect(result.episodes).toHaveLength(2);
+  });
+
+  it("links back to the previous episode and fills titles", () => {
+    const html = fixture("episode.html")
+      .replace('"current_eps":1', '"current_eps":2')
+      .replace('"next":"doctor-x-age-white-mafia-2026-episode-2"', '"next":null');
+    const second = parseEpisode(
+      html,
+      `${BASE}/doctor-x-age-white-mafia-2026-episode-2`,
+      BASE,
+    );
+    expect(second.prev).toMatchObject({
+      episode: 1,
+      title: "Doctor X Episode 1",
+    });
+    expect(second.next).toBeNull();
+  });
+});
+
+describe("parseNav", () => {
+  const groups = parseNav(fixture("home.html"), BASE, {
+    moviesBase: "https://d21.team",
+  });
+
+  it("groups the navbar filters", () => {
+    expect(groups.map((group) => group.label)).toEqual(["Genre", "Lk21", "Series"]);
+  });
+
+  it("classifies each filter link", () => {
+    const genre = groups[0]?.items ?? [];
+    expect(genre[0]).toMatchObject({ label: "Action", kind: "genre", path: "genre/action" });
+    expect(genre.at(-1)).toMatchObject({
+      label: "Genre Lainnya",
+      kind: "page",
+      path: "rekomendasi-film-pintar",
+    });
+
+    expect(groups[1]?.items[0]).toMatchObject({
+      label: "Film Terbaru",
+      kind: "movie",
+      path: "latest",
+      url: "https://d21.team/latest",
+    });
+    expect(groups[2]?.items[0]).toMatchObject({
+      label: "Ongoing",
+      kind: "series",
+      path: "series/ongoing",
+    });
   });
 });
 
@@ -203,6 +255,7 @@ describe("parseTaxonomyLinks", () => {
   it("collects unique genre links", () => {
     expect(parseTaxonomyLinks(html, BASE, "genre")).toEqual([
       { name: "Action", slug: "action", url: `${BASE}/genre/action` },
+      { name: "Horror", slug: "horror", url: `${BASE}/genre/horror` },
       { name: "Drama", slug: "drama", url: `${BASE}/genre/drama` },
       { name: "Comedy", slug: "comedy", url: `${BASE}/genre/comedy` },
     ]);

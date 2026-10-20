@@ -43,6 +43,8 @@ pencarian, detail, dan link streaming/episode. Dibangun dengan TypeScript
 Fitur utama:
 
 - Satu endpoint per kategori: home, latest, popular, rating, release, series.
+- Scrape seluruh filter navbar tv9 (Genre, Series, Negara, Tahun) lewat
+  `/v1/filters` + `/v1/filter`, plus daftar film dari portal Lk21 (`/v1/movies/*`).
 - Pencarian lewat endpoint JSON milik sumber. Endpoint ini memverifikasi
   `Referer`, jadi header itu dikirim memakai origin mirror aktif (di-resolve
   dulu dari `LK21_URL`), bukan domain promo/landing.
@@ -89,7 +91,8 @@ Semua lewat environment (lihat `.env.example`):
 | --- | --- | --- |
 | `PORT` | `3000` | Port API |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis untuk cache |
-| `LK21_URL` | `https://tv9.nontondrama.my` | Satu-satunya base sumber yang dipakai semua endpoint |
+| `LK21_URL` | `https://tv9.nontondrama.my` | Base sumber utama (tv9) untuk semua endpoint |
+| `LK21_MOVIES_URL` | `https://d21.team` | Portal film dari navbar Lk21 (landing → situs film live) |
 | `LK21_SEARCH_URL` | `https://gudangvape.com/` | Base URL endpoint JSON pencarian |
 | `LK21_POSTER_URL` | `https://poster.assetsy.de/wp-content/uploads/` | Prefix poster relatif hasil pencarian |
 | `ALLOWED_HOSTS` | _(kosong)_ | Allowlist host; kosong = otomatis dari host LK21 |
@@ -105,9 +108,11 @@ Semua lewat environment (lihat `.env.example`):
 | `MAX_PAGES_PER_REQUEST` | `20` | Batas `pages` per request |
 | `DEFAULT_LIST_LIMIT` | `24` | `limit` default |
 
-> **Satu base untuk semua endpoint.** `LK21_URL` sekarang hanya boleh menunjuk
+> **Satu base untuk konten tv9.** `LK21_URL` menunjuk
 > `https://tv9.nontondrama.my`; tidak ada base series terpisah. Semua URL yang
-> dipancarkan endpoint (list, detail, episode, pencarian) memakai host ini.
+> dipancarkan endpoint tv9 (list, detail, episode, pencarian) memakai host ini.
+> Hanya daftar film navbar yang membaca portal `LK21_MOVIES_URL` (`d21.team`),
+> dan item-nya tetap dipancarkan sebagai URL tv9.
 >
 > **Detail film lewat tv9.** Slug film di tv9 dialihkan ke halaman promo
 > (`d21.team`) yang menautkan ke situs film asli. API mengikuti tautan itu
@@ -135,6 +140,10 @@ Base path: `/v1`. Detail lengkap ada di [`docs/API.md`](docs/API.md).
 | `GET /v1/rating` | Rating tertinggi (tv9) |
 | `GET /v1/release` | Rilis terbaru (tv9) |
 | `GET /v1/series` | Series terbaru |
+| `GET /v1/series/:filter` | Series `ongoing` / `complete` / `west` / `asian` |
+| `GET /v1/filters` | Struktur filter navbar tv9 |
+| `GET /v1/filter?path=` | Scrape path filter tv9 (`genre/…`, `country/…`, `year/…`, `series/…`, `latest`, `populer`, `rating`, `release`) |
+| `GET /v1/movies/:kind` | Daftar film portal Lk21: `home` / `latest` / `popular` / `top` |
 | `GET /v1/search?q=` | Pencarian |
 | `GET /v1/genre/:slug` | Konten tv9 per genre |
 | `GET /v1/country/:slug` | Konten tv9 per negara |

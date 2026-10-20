@@ -7,15 +7,22 @@ import {
   getByGenre,
   getByYear,
   getEpisode,
+  getFilter,
+  getFilters,
   getGenres,
   getCountries,
   getHome,
   getList,
   getMovie,
+  getMovieList,
+  getSeriesFilter,
+  MOVIE_LIST_KINDS,
   normalizeListOptions,
   parseContentType,
   search,
+  SERIES_FILTERS,
   type ListKind,
+  type MovieListKind,
 } from "../../lk21/service";
 
 function intParam(value: unknown): number | undefined {
@@ -78,6 +85,45 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
   app.get("/v1/rating", listHandler("rating"));
   app.get("/v1/release", listHandler("release"));
   app.get("/v1/series", listHandler("series"));
+
+  app.get("/v1/series/:filter", async (request, reply) => {
+    const { filter } = request.params as { filter: string };
+    if (!(SERIES_FILTERS as readonly string[]).includes(filter)) {
+      return reply.code(400).send({
+        error: "invalid_filter",
+        message: `Filter series tidak dikenal; pilih ${SERIES_FILTERS.join(", ")}`,
+      });
+    }
+    return respond(reply, () => getSeriesFilter(app.redis, filter, listQuery(request.query)));
+  });
+
+  app.get("/v1/filters", async (_request, reply) => {
+    return respond(reply, () => getFilters(app.redis));
+  });
+
+  app.get("/v1/filter", async (request, reply) => {
+    const q = (request.query ?? {}) as Record<string, unknown>;
+    const path = strParam(q.path);
+    if (!path) {
+      return reply
+        .code(400)
+        .send({ error: "missing_path", message: "Query parameter `path` is required" });
+    }
+    return respond(reply, () => getFilter(app.redis, path, listQuery(q)));
+  });
+
+  app.get("/v1/movies/:kind", async (request, reply) => {
+    const { kind } = request.params as { kind: string };
+    if (!(MOVIE_LIST_KINDS as readonly string[]).includes(kind)) {
+      return reply.code(400).send({
+        error: "invalid_kind",
+        message: `Jenis daftar film tidak dikenal; pilih ${MOVIE_LIST_KINDS.join(", ")}`,
+      });
+    }
+    return respond(reply, () =>
+      getMovieList(app.redis, kind as MovieListKind, listQuery(request.query)),
+    );
+  });
 
   app.get("/v1/search", async (request, reply) => {
     const q = (request.query ?? {}) as Record<string, unknown>;

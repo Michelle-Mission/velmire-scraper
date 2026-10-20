@@ -18,12 +18,15 @@ Semua endpoint berada di bawah prefix `/v1`.
 - [Health](#health)
 - [Beranda](#beranda)
 - [Daftar (listing)](#daftar-listing)
+- [Filter navbar](#filter-navbar)
+- [Daftar film (portal)](#daftar-film-portal)
 - [Pencarian](#pencarian)
 - [Genre / Country / Year](#genre--country--year)
 - [Detail film & series](#detail-film--series)
 - [Detail episode](#detail-episode)
 - [Resolver & proxy stream](#resolver--proxy-stream)
-- [Taxonomy](#taxonomy)- [Tipe data](#tipe-data)
+- [Taxonomy](#taxonomy)
+- [Tipe data](#tipe-data)
 - [Kode error](#kode-error)
 
 ---
@@ -106,13 +109,17 @@ Query: `limit` (opsional, membatasi jumlah item per section),
 Semua endpoint di bawah ini mengembalikan `ListResult` dan menerima query
 pagination (`page`, `pages`, `limit`).
 
-| Endpoint | Path sumber | Situs |
+| Endpoint | Path sumber | Keterangan |
 | --- | --- | --- |
-| `GET /v1/latest` | `/latest` | film |
-| `GET /v1/popular` | `/populer` | film |
-| `GET /v1/rating` | `/rating` | film |
-| `GET /v1/release` | `/release` | film |
-| `GET /v1/series` | `/latest-series` | series |
+| `GET /v1/latest` | `/latest` | Konten terbaru tv9 |
+| `GET /v1/popular` | `/populer` | Terpopuler tv9 |
+| `GET /v1/rating` | `/rating` | Rating tertinggi tv9 |
+| `GET /v1/release` | `/release` | Rilis terbaru tv9 |
+| `GET /v1/series` | `/latest-series` | Series terbaru tv9 |
+| `GET /v1/series/:filter` | `/series/:filter` | `ongoing` / `complete` / `west` / `asian` |
+
+Filter lain dari navbar bisa diambil lewat `GET /v1/filter?path=...`
+(lihat [Filter navbar](#filter-navbar)).
 
 ```json
 {
@@ -126,6 +133,74 @@ pagination (`page`, `pages`, `limit`).
 
 - `pages`: jumlah halaman sumber yang benar-benar diambil.
 - `totalPages`: total halaman sumber (bila terdeteksi), bisa `null`.
+
+---
+
+## Filter navbar
+
+Semua filter yang tampil di navbar tv9 bisa di-scrape. `GET /v1/filters`
+mengembalikan struktur menu (Genre, Lk21, Series, Negara, Tahun, + More) beserta
+`label`, `url`, `path`, `slug`, dan `kind`
+(`genre` | `country` | `year` | `series` | `movie` | `page` | `external`).
+
+### `GET /v1/filters`
+
+```json
+{
+  "groups": [
+    {
+      "label": "Genre",
+      "items": [
+        { "label": "Action", "url": "https://tv9.nontondrama.my/genre/action", "path": "genre/action", "slug": "action", "kind": "genre" }
+      ]
+    },
+    {
+      "label": "Lk21",
+      "items": [
+        { "label": "Film Terbaru", "url": "https://d21.team/latest", "path": "latest", "slug": "latest", "kind": "movie" }
+      ]
+    }
+  ]
+}
+```
+
+### `GET /v1/filter`
+
+Scrape path filter internal tv9 secara generik. Path yang didukung:
+`genre/…`, `country/…`, `year/…`, `series/…`, serta daftar
+`latest`, `populer`, `rating`, `release`, `latest-series`.
+
+| Param | Wajib | Keterangan |
+| --- | --- | --- |
+| `path` | ya | Mis. `series/ongoing`, `genre/action`, `country/japan`, `year/2026` |
+| `page`, `pages`, `limit` | tidak | Query pagination |
+
+```bash
+curl 'http://localhost:3000/v1/filter?path=series/ongoing'
+curl 'http://localhost:3000/v1/filter?path=country/japan&limit=12'
+```
+
+Response: `ListResult`. Path di luar daftar (termasuk percobaan path traversal)
+ditolak dengan `400 invalid_filter`.
+
+---
+
+## Daftar film (portal)
+
+Navbar **Lk21** mengarah ke portal film `d21.team` (halaman landing yang
+meneruskan ke situs film live). API mengikuti landing tersebut otomatis dan
+mengembalikan item dengan URL tv9 agar detail tetap bisa diambil lewat
+`/v1/movie?slug=...`.
+
+| Endpoint | Keterangan |
+| --- | --- |
+| `GET /v1/movies/home` | Beranda portal film |
+| `GET /v1/movies/latest` | Film terbaru |
+| `GET /v1/movies/popular` | Film terpopuler |
+| `GET /v1/movies/top` | Film unggulan hari ini |
+
+Semua menerima query pagination dan mengembalikan `ListResult`.
+`kind` yang tidak dikenal → `400 invalid_kind`.
 
 ---
 
@@ -197,6 +272,8 @@ promo tetap diikuti otomatis agar detailnya bisa diambil.
 | `url` | URL lengkap episode; divalidasi terhadap allowlist |
 
 Response: `EpisodeResult`. Episode diambil dari base `LK21_URL` (tv9).
+Jika `slug` adalah halaman series (bukan episode), API membalas `400 not_an_episode`;
+gunakan `/v1/movie?slug=...` untuk detail series.
 
 ---
 
@@ -304,7 +381,28 @@ curl --get --data-urlencode 'proxy=1' --data-urlencode 'url=<m3u8 atau segmen>' 
 }
 ```
 
+### `NavFilterItem` / `NavGroup` / `FiltersResult`
+
+```ts
+type NavItemKind =
+  | "genre" | "country" | "year" | "series" | "movie" | "page" | "external";
+
+interface NavFilterItem {
+  label: string;
+  url: string;
+  path: string;   // tanpa leading slash; kosong untuk link eksternal
+  slug: string;
+  kind: NavItemKind;
+}
+
+interface NavGroup { label: string; items: NavFilterItem[] }
+interface FiltersResult { groups: NavGroup[] }
+```
+
 ### `DetailResult`
+
+> `streams` digabung dari `#player-list` dan `#player-select`, jadi server yang
+> hanya muncul di dropdown (mis. `turbovip`) tetap ikut terdaftar.
 
 ```ts
 {
@@ -343,6 +441,9 @@ curl --get --data-urlencode 'proxy=1' --data-urlencode 'url=<m3u8 atau segmen>' 
 
 ### `EpisodeResult`
 
+> `streams` digabung dari `#player-list` dan `#player-select`, jadi server yang
+> hanya muncul di dropdown (mis. `turbovip`) tetap ikut terdaftar.
+
 ```ts
 {
   title: string;
@@ -356,6 +457,7 @@ curl --get --data-urlencode 'proxy=1' --data-urlencode 'url=<m3u8 atau segmen>' 
   streams: { server: string; url: string }[];
   defaultStream: string | null;
   downloadUrl: string | null;
+  prev: EpisodeLink | null;
   next: EpisodeLink | null;
   episodes: EpisodeLink[];
 }
@@ -370,13 +472,17 @@ curl --get --data-urlencode 'proxy=1' --data-urlencode 'url=<m3u8 atau segmen>' 
 | 400 | `missing_query` | Parameter `q` pencarian tidak ada |
 | 400 | `missing_reference` | `url`/`slug` tidak ada |
 | 400 | `missing_url` | Parameter `url` untuk `/v1/stream` tidak ada |
+| 400 | `missing_path` | Parameter `path` untuk `/v1/filter` tidak ada |
+| 400 | `invalid_filter` | Path/`filter` tidak didukung (atau percobaan path traversal) |
+| 400 | `invalid_kind` | `kind` daftar film tidak dikenal |
 | 400 | `invalid_player_url` | URL player tidak dikenali (`/iframe3/<server>/<id>`) |
 | 400 | `invalid_year` | Format tahun bukan 4 digit |
 | 400 | `host_not_allowed` | Host tidak ada di allowlist |
 | 400 | `port_not_allowed` | Port tidak diizinkan |
 | 400 | `private_address_blocked` | Host menuju alamat privat |
 | 400 | `redirect_blocked` | Redirect ke target yang tidak diizinkan |
-| 404 | `not_found` | Endpoint tidak dikenal |
+| 400 | `not_an_episode` | Slug yang diberikan adalah halaman series, bukan episode |
+| 404 | `not_found` | Endpoint atau konten (slug) tidak ditemukan |
 | 502 | `challenge_not_solved` | Challenge Cloudflare tidak terpecahkan |
 | 502 | `cloudscraper_unreachable` | Sidecar tidak berjalan / tidak dapat dihubungi. Jalankan `./run-web.sh` (sidecar ikut otomatis) |
 | 502 | `cloudscraper_error` | Sidecar mengembalikan error lain |

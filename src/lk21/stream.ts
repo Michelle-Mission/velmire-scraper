@@ -1,8 +1,9 @@
 import axios from "axios";
 import type Redis from "ioredis";
 import { config } from "../shared/config";
-import { cacheKey, remember } from "../shared/cache";
+import { cacheKey, getJson, setJson } from "../shared/cache";
 import { validateUrl } from "../shared/url-guard";
+import { resolveCastHls } from "./cast";
 import { ScrapeError } from "./http";
 
 export interface StreamInfo {
@@ -148,26 +149,42 @@ async function probeEmbeddable(embedUrl: string): Promise<boolean> {
   }
 }
 
-export function resolveStream(redis: Redis, playerUrl: string): Promise<StreamInfo> {
+export async function resolveStream(redis: Redis, playerUrl: string): Promise<StreamInfo> {
   const key = cacheKey(["stream", playerUrl]);
-  return remember(redis, key, async () => {
-    const guard = await validateUrl(playerUrl, {
-      allowedHosts: [],
-      allowedPorts: config.ALLOWED_PORTS,
-      allowPrivateHosts: config.ALLOW_PRIVATE_HOSTS,
-      skipAllowlist: true,
-    });
-    if (!guard.ok) throw new ScrapeError(guard.reason, guard.code, 400);
+  const cached = await getJson<StreamInfo>(redis, key);
+  if (cached !== null) return cached;
 
-    const parsed = parsePlayerPath(playerUrl);
-    if (!parsed) {
-      throw new ScrapeError(`URL player tidak valid: ${playerUrl}`, "invalid_player_url", 400);
-    }
-
-    const embed = await resolveEmbed(playerUrl);
-    const embeddable = await probeEmbeddable(embed);
-    const hls = await resolveHls(embed);
-    if (hls) return { server: parsed.server, player: playerUrl, embed, embeddable, hls } satisfies StreamInfo;
-    return { server: parsed.server, player: playerUrl, embed, embeddable } satisfies StreamInfo;
+  const guard = await validateUrl(playerUrl, {
+    allowedHosts: [],
+    allowedPorts: config.ALLOWED_PORTS,
+    allowPrivateHosts: config.ALLOW_PRIVATE_HOSTS,
+    skipAllowlist: true,
   });
+  if (!guard.ok) throw new ScrapeError(guard.reason, guard.code, 400);
+
+  const parsed = parsePlayerPath(playerUrl);
+  if (!parsed) {
+    throw new ScrapeError(`URL player tidak valid: ${playerUrl}`, "invalid_player_url", 400);
+  }
+
+  const embed = await resolveEmbed(playerUrl);
+  const castHls = await resolveCastHls(embed, new URL(playerUrl).origin).catch(() => undefined);
+  if (castHls) {
+    const info = {
+      server: parsed.server,
+      player: playerUrl,
+      embed,
+      embeddable: true,
+      hls: castHls,
+    } satisfies StreamInfo;
+    // Cast links are signed and short-lived; keep the cache well below expiry.
+    await setJson(redis, key, info, Math.min(config.CACHE_TTL_SECONDS, 600));
+    return info;
+  }
+
+  const embeddable = await probeEmbeddable(embed);
+  const hls = await resolveHls(embed);
+  const info = { server: parsed.server, player: playerUrl, embed, embeddable, hls } satisfies StreamInfo;
+  await setJson(redis, key, info, hls ? Math.min(config.CACHE_TTL_SECONDS, 600) : config.CACHE_TTL_SECONDS);
+  return info;
 }

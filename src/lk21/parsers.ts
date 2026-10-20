@@ -8,6 +8,9 @@ import type {
   HomeResult,
   HomeSection,
   ListItem,
+  NavFilterItem,
+  NavGroup,
+  NavItemKind,
   SeasonGroup,
   StreamSource,
   TaxonomyItem,
@@ -272,16 +275,27 @@ function parseSeasonData(raw: SeasonData | null, base: string): SeasonGroup[] {
 }
 
 function parseStreams($: CheerioAPI): StreamSource[] {
-  return $("#player-list li a")
-    .map((_, el) => {
-      const $el = $(el);
-      const url = $el.attr("data-url") || $el.attr("href") || "";
-      const server = $el.attr("data-server") || $el.text().trim();
-      if (!url) return null;
-      return { server: server || "unknown", url } satisfies StreamSource;
-    })
-    .get()
-    .filter((entry): entry is StreamSource => entry !== null);
+  const seen = new Set<string>();
+  const streams: StreamSource[] = [];
+  const add = (url: string | undefined, server: string | undefined): void => {
+    const value = (url ?? "").trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    streams.push({ server: (server ?? "").trim() || "unknown", url: value });
+  };
+
+  $("#player-list li a").each((_, el) => {
+    const $el = $(el);
+    add($el.attr("data-url") || $el.attr("href"), $el.attr("data-server") || $el.text());
+  });
+  // Some servers (e.g. "turbovip") only appear in the select fallback.
+  $("#player-select option").each((_, el) => {
+    const $el = $(el);
+    const label = $el.text().replace(/ganti\s*player/i, "").trim();
+    add($el.attr("value"), $el.attr("data-server") || label);
+  });
+
+  return streams;
 }
 
 function findActionLink($: CheerioAPI, matcher: RegExp): string | null {
@@ -429,23 +443,30 @@ export function parseEpisode(html: string, url: string, base: string): EpisodeRe
   const seasons = parseSeasonData(seasonData, base);
   const episodes = seasons.flatMap((season) => season.episodes);
 
-  const nextSlug = watch?.next ?? null;
-  const nextUrl = nextSlug ? absUrl(`/${nextSlug}`, base) : null;
-  const nextLink: EpisodeLink | null = nextUrl
-    ? {
-        season: watch?.current_season ?? 0,
-        episode: (watch?.current_eps ?? 0) + 1,
-        title: "",
-        slug: nextSlug ?? "",
+  const currentSlug = slugOf(url);
+  const index = episodes.findIndex((entry) => entry.slug === currentSlug);
+  const prev: EpisodeLink | null = index > 0 ? (episodes[index - 1] ?? null) : null;
+  let next: EpisodeLink | null =
+    index >= 0 && index + 1 < episodes.length ? (episodes[index + 1] ?? null) : null;
+
+  if (!next && watch?.next) {
+    const nextUrl = absUrl(`/${watch.next}`, base);
+    if (nextUrl) {
+      next = {
+        season: watch.current_season ?? 0,
+        episode: (watch.current_eps ?? 0) + 1,
+        title: episodes.find((entry) => entry.slug === watch.next)?.title ?? "",
+        slug: watch.next,
         url: nextUrl,
-      }
-    : null;
+      };
+    }
+  }
 
   const preview = $(".main-player video").first();
 
   return {
     title: $("h1").first().text().trim(),
-    slug: slugOf(url),
+    slug: currentSlug,
     url,
     poster: absUrl(watch?.poster ?? preview.attr("poster"), base),
     year: watch?.year ?? null,
@@ -455,7 +476,8 @@ export function parseEpisode(html: string, url: string, base: string): EpisodeRe
     streams: parseStreams($),
     defaultStream: absUrl($("#main-player").first().attr("src"), base),
     downloadUrl: findActionLink($, /download/i),
-    next: nextLink,
+    prev,
+    next,
     episodes,
   };
 }
@@ -530,4 +552,87 @@ export function parseTaxonomyLinks(html: string, base: string, kind: "genre" | "
     });
   });
   return [...items.values()];
+}
+
+function hostOfUrl(value: string): string | null {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
+}
+
+const NAV_SERIES_LISTS = new Set(["latest", "populer", "rating", "release", "latest-series"]);
+
+function navKind(href: string, pathname: string, moviesHost: string | null): NavItemKind {
+  if (/^[a-z]+:\/\//i.test(href)) {
+    const host = hostOfUrl(href);
+    return moviesHost && host === moviesHost ? "movie" : "external";
+  }
+  if (pathname.startsWith("genre/")) return "genre";
+  if (pathname.startsWith("country/")) return "country";
+  if (pathname.startsWith("year/")) return "year";
+  if (pathname.startsWith("series/") || NAV_SERIES_LISTS.has(pathname)) return "series";
+  return "page";
+}
+
+/**
+ * Parse the desktop navbar (`ul.navbar-nav`) into groups of filters. Each item
+ * keeps its absolute URL plus a relative `path` (for internal tv9 filters) so
+ * callers can feed it straight into the generic list scraper.
+ */
+export function parseNav(
+  html: string,
+  base: string,
+  options: { moviesBase?: string } = {},
+): NavGroup[] {
+  const $ = cheerio.load(html);
+  const moviesHost = options.moviesBase ? hostOfUrl(options.moviesBase) : null;
+  const groups: NavGroup[] = [];
+
+  $("ul.navbar-nav > li").each((_, li) => {
+    const $li = $(li);
+    const $toggle = $li.find("a.dropdown-toggle").first();
+    if ($toggle.length === 0) return;
+
+    const label = $toggle
+      .clone()
+      .children("i")
+      .remove()
+      .end()
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!label) return;
+
+    const items: NavFilterItem[] = [];
+    const seen = new Set<string>();
+    $li.find(".dropdown-menu a").each((__, el) => {
+      const href = $(el).attr("href") ?? "";
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      if (!href || href === "#" || !text) return;
+
+      const url = absUrl(href, base);
+      if (!url) return;
+      let pathname = "";
+      try {
+        pathname = new URL(url).pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+      } catch {
+        return;
+      }
+      if (seen.has(url)) return;
+      seen.add(url);
+      items.push({
+        label: text,
+        url,
+        path: pathname,
+        slug: slugOf(url),
+        kind: navKind(href, pathname, moviesHost),
+      });
+    });
+
+    if (items.length > 0) groups.push({ label, items });
+  });
+
+  return groups;
 }

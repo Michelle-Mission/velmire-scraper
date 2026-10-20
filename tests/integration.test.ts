@@ -78,10 +78,12 @@ suite("velmire-scraper v1 API", () => {
       path.startsWith("/genre/") ||
       path.startsWith("/country/") ||
       path.startsWith("/year/") ||
+      path.startsWith("/series/") ||
       path.startsWith("/latest/") ||
       path.startsWith("/populer/") ||
       path.startsWith("/rating/") ||
       path.startsWith("/release/") ||
+      path.startsWith("/top-movie-today/") ||
       path.startsWith("/latest-series/");
 
     const send = (res: ServerResponse, body: string, type = "text/html; charset=utf-8"): void => {
@@ -138,6 +140,7 @@ suite("velmire-scraper v1 API", () => {
     mockBase = `http://127.0.0.1:${mockPort}`;
 
     process.env.LK21_URL = mockBase;
+    process.env.LK21_MOVIES_URL = mockBase;
     process.env.LK21_SEARCH_URL = `${mockBase}/`;
     process.env.LK21_POSTER_URL = `${mockBase}/uploads/`;
     process.env.ALLOWED_HOSTS = "127.0.0.1";
@@ -188,6 +191,60 @@ suite("velmire-scraper v1 API", () => {
     expect(res.json().items).toHaveLength(2);
   });
 
+  it("scrapes the navbar filters", async () => {
+    const res = await app!.inject({ method: "GET", url: "/v1/filters" });
+    expect(res.statusCode).toBe(200);
+    const groups = res.json().groups;
+    expect(groups.map((group: { label: string }) => group.label)).toEqual([
+      "Genre",
+      "Lk21",
+      "Series",
+    ]);
+    expect(groups[0].items[0]).toMatchObject({ label: "Action", kind: "genre" });
+  });
+
+  it("lists a series sub-filter", async () => {
+    const ok = await app!.inject({ method: "GET", url: "/v1/series/ongoing" });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().items).toHaveLength(2);
+
+    const bad = await app!.inject({ method: "GET", url: "/v1/series/bogus" });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toBe("invalid_filter");
+  });
+
+  it("lists any supported navbar filter path", async () => {
+    const ok = await app!.inject({ method: "GET", url: "/v1/filter?path=year/2026" });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().items).toHaveLength(2);
+
+    const list = await app!.inject({ method: "GET", url: "/v1/filter?path=populer" });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().items).toHaveLength(2);
+
+    const missing = await app!.inject({ method: "GET", url: "/v1/filter" });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json().error).toBe("missing_path");
+
+    const invalid = await app!.inject({ method: "GET", url: "/v1/filter?path=../../etc" });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().error).toBe("invalid_filter");
+
+    const series = await app!.inject({ method: "GET", url: "/v1/filter?path=series/bogus" });
+    expect(series.statusCode).toBe(400);
+    expect(series.json().error).toBe("invalid_filter");
+  });
+
+  it("lists movies from the movie portal", async () => {
+    const ok = await app!.inject({ method: "GET", url: "/v1/movies/latest" });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().items).toHaveLength(2);
+
+    const bad = await app!.inject({ method: "GET", url: "/v1/movies/bogus" });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toBe("invalid_kind");
+  });
+
   it("validates the year path parameter", async () => {
     const ok = await app!.inject({ method: "GET", url: "/v1/year/2026" });
     expect(ok.statusCode).toBe(200);
@@ -234,7 +291,8 @@ suite("velmire-scraper v1 API", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.type).toBe("movie");
-    expect(body.streams).toHaveLength(2);
+    expect(body.streams).toHaveLength(3);
+    expect(body.streams.map((s: { server: string }) => s.server)).toContain("turbovip");
   });
 
   it("follows a promo landing page to the movie detail", async () => {
@@ -245,7 +303,7 @@ suite("velmire-scraper v1 API", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.type).toBe("movie");
-    expect(body.streams).toHaveLength(2);
+    expect(body.streams).toHaveLength(3);
   });
 
   it("resolves a stream and flags embeddable players", async () => {
@@ -329,6 +387,21 @@ suite("velmire-scraper v1 API", () => {
     expect(body.next.slug).toBe("doctor-x-age-white-mafia-2026-episode-2");
   });
 
+  it("returns 404 when the content slug does not exist", async () => {
+    const res = await app!.inject({ method: "GET", url: "/v1/movie?slug=missing-2026" });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("not_found");
+  });
+
+  it("rejects a series slug on the episode endpoint", async () => {
+    const res = await app!.inject({
+      method: "GET",
+      url: "/v1/episode?slug=doctor-x-age-white-mafia-2026",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("not_an_episode");
+  });
+
   it("requires a reference for detail requests", async () => {
     const res = await app!.inject({ method: "GET", url: "/v1/movie" });
     expect(res.statusCode).toBe(400);
@@ -338,7 +411,7 @@ suite("velmire-scraper v1 API", () => {
   it("lists genres and countries", async () => {
     const genres = await app!.inject({ method: "GET", url: "/v1/genres" });
     expect(genres.statusCode).toBe(200);
-    expect(genres.json()).toHaveLength(3);
+    expect(genres.json()).toHaveLength(4);
 
     const countries = await app!.inject({ method: "GET", url: "/v1/countries" });
     expect(countries.statusCode).toBe(200);

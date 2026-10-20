@@ -93,6 +93,7 @@ export interface EpisodeResult {
   streams: StreamSource[];
   defaultStream: string | null;
   downloadUrl: string | null;
+  prev: EpisodeLink | null;
   next: EpisodeLink | null;
   episodes: EpisodeLink[];
 }
@@ -101,6 +102,27 @@ export interface TaxonomyItem {
   name: string;
   slug: string;
   url: string;
+}
+
+export type NavItemKind = "genre" | "country" | "year" | "series" | "movie" | "page" | "external";
+
+export interface NavFilterItem {
+  label: string;
+  /** Absolute URL on the source that owns the filter (tv9 or the movie portal). */
+  url: string;
+  /** Path relative to its owner, without a leading slash (empty for external links). */
+  path: string;
+  slug: string;
+  kind: NavItemKind;
+}
+
+export interface NavGroup {
+  label: string;
+  items: NavFilterItem[];
+}
+
+export interface FiltersResult {
+  groups: NavGroup[];
 }
 
 export interface FetchInfo {
