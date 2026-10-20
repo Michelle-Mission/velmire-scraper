@@ -1,7 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { ScrapeError } from "../../lk21/http";
-import { proxyMedia } from "../../lk21/hls";
-import { resolveStream } from "../../lk21/stream";
+import { respond, strParam } from "../respond";
 import {
   getByCountry,
   getByGenre,
@@ -23,41 +21,12 @@ import {
   SERIES_FILTERS,
   type ListKind,
   type MovieListKind,
-} from "../../lk21/service";
+} from "../../scraper/lk21/service";
 
 function intParam(value: unknown): number | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function strParam(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed === "" ? undefined : trimmed;
-}
-
-async function respond<T>(
-  reply: FastifyReply,
-  loader: () => Promise<T>,
-): Promise<T | FastifyReply> {
-  try {
-    return await loader();
-  } catch (error) {
-    if (error instanceof ScrapeError) {
-      return reply
-        .code(error.statusCode)
-        .send({ error: error.code, message: error.message });
-    }
-    throw error;
-  }
-}
-
-function sendError(reply: FastifyReply, error: unknown): FastifyReply {
-  if (error instanceof ScrapeError) {
-    return reply.code(error.statusCode).send({ error: error.code, message: error.message });
-  }
-  throw error;
 }
 
 function listQuery(query: unknown): ReturnType<typeof normalizeListOptions> {
@@ -195,34 +164,6 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
         .send({ error: "missing_reference", message: "Provide either `url` or `slug`" });
     }
     return respond(reply, () => getEpisode(app.redis, { url, slug }));
-  });
-
-  app.get("/v1/stream", async (request, reply) => {
-    const q = (request.query ?? {}) as Record<string, unknown>;
-    const url = strParam(q.url);
-    if (!url) {
-      return reply
-        .code(400)
-        .send({ error: "missing_url", message: "Query parameter `url` is required" });
-    }
-
-    // One endpoint, two roles: `proxy=1` (or any non-player URL) turns it into
-    // the HLS/segment proxy; otherwise it resolves a player wrapper to JSON.
-    const wantsProxy = strParam(q.proxy) !== undefined || !/\/iframe3\//.test(url);
-    if (wantsProxy) {
-      try {
-        const result = await proxyMedia(url, strParam(request.headers.range));
-        reply.code(result.status).header("Content-Type", result.contentType);
-        if (result.contentRange) reply.header("Content-Range", result.contentRange);
-        if (result.acceptRanges) reply.header("Accept-Ranges", result.acceptRanges);
-        if (result.contentType.includes("mpegurl")) reply.header("Cache-Control", "no-store");
-        return reply.send(result.body);
-      } catch (error) {
-        return sendError(reply, error);
-      }
-    }
-
-    return respond(reply, () => resolveStream(app.redis, url));
   });
 
   app.get("/v1/genres", async (request, reply) => {

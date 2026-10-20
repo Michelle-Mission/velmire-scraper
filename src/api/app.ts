@@ -8,6 +8,7 @@ import type Redis from "ioredis";
 import { config } from "../shared/config";
 import { createRedis } from "../shared/redis";
 import { registerHealthRoutes } from "./routes/health";
+import { registerStreamRoutes } from "./routes/stream";
 import { registerV1Routes } from "./routes/v1";
 
 declare module "fastify" {
@@ -32,6 +33,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     logger: { level: config.LOG_LEVEL },
     trustProxy: true,
     bodyLimit: 256 * 1024,
+    routerOptions: { maxParamLength: 4096 },
   });
 
   const redis = createRedis(config.REDIS_URL);
@@ -59,6 +61,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await registerHealthRoutes(app);
+  await registerStreamRoutes(app);
   await registerV1Routes(app);
 
   app.setNotFoundHandler((request, reply) => {

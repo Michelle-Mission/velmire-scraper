@@ -9,7 +9,7 @@ import {
   parseList,
   parseNav,
   parseTaxonomyLinks,
-} from "../src/lk21/parsers";
+} from "../src/scraper/lk21/parsers";
 
 const BASE = "https://tv9.nontondrama.my";
 

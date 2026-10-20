@@ -277,58 +277,57 @@ gunakan `/v1/movie?slug=...` untuk detail series.
 
 ---
 
-## Resolver & proxy stream
+## Stream
 
-### `GET /v1/stream`
+### `GET /v1/stream?url=`
 
-Satu endpoint dengan dua peran, dipilih otomatis:
-
-1. **Resolver** — bila `url` adalah halaman player LK21
-   (`videonode.de/iframe3/<server>/<id>`): resolve player asli di balik
-   `POST /api.php` dan kembalikan JSON informasi.
-2. **Proxy media** — bila `proxy=1` diberikan **atau** `url` bukan URL player:
-   ambil URL tersebut dan kirim ulang lewat origin ini. Playlist `.m3u8`
-   (berawalan `#EXTM3U`) di-rewrite sedemikian sehingga seluruh URI anak
-   (variant, segmen, key) kembali menunjuk ke `/v1/stream?proxy=1&url=...`;
-   selain itu byte dikirim apa adanya (mendukung `Range`/`206`). Ini menghindari
-   CORS karena UI satu origin dengan API.
+Resolve halaman player LK21 (`videonode.de/iframe3/<server>/<id>`) menjadi
+JSON. Player asli di balik `POST /api.php` di-resolve; untuk `p2p` dan `cast`,
+HLS diambil server-side (termasuk penyelesaian PoW `cast`). Jika media tidak
+tersedia, endpoint tetap mengembalikan `embed` + `embeddable` sebagai fallback.
 
 | Param | Keterangan |
 | --- | --- |
-| `url` | URL player (mode resolver) atau URL media (mode proxy) |
-| `proxy` | `1` untuk memaksa mode proxy |
-| `Range` (header) | Diteruskan ke sumber saat mem-proxy segmen |
-
-Resolver:
+| `url` | URL player LK21 |
 
 ```bash
 curl --get --data-urlencode \
-  'url=https://videonode.de/iframe3/p2p/<id>' \
+  'url=https://videonode.de/iframe3/cast/<id>' \
   'http://localhost:3000/v1/stream'
 ```
 
 ```json
 {
-  "server": "p2p",
-  "player": "https://videonode.de/iframe3/p2p/<id>",
-  "embed": "https://playcdn.de/<slug>?cb=3",
-  "embeddable": false,
-  "hls": "https://stream.playcdn.de/playlist/<hash>/1/0.m3u8?x=1"
+  "server": "cast",
+  "player": "https://videonode.de/iframe3/cast/<id>",
+  "embed": "https://mfw09.org/e/<id>",
+  "embeddable": true,
+  "hls": "/stream/<token>"
 }
 ```
 
-- `embed`: URL player asli (untuk di-embed / dimuat).
-- `embeddable`: `false` bila player mengirim CSP `frame-ancestors` /
-  `X-Frame-Options` yang melarang embed.
-- `hls`: URL `.m3u8` langsung bila provider mengeksposnya (mis. server `p2p`).
-  Bila ada, UI memutar via `<video>` + hls.js memakai mode proxy endpoint ini.
+- `hls`: URL same-origin bertanda tangan (absolut bila `PUBLIC_BASE_URL`
+  diisi). UI memutar langsung dengan hls.js; tidak perlu parameter tambahan.
+- Token ditandatangani ulang setiap resolve dan berlaku
+  `STREAM_TOKEN_TTL_SECONDS` (default 6 jam).
+- `embed`/`embeddable` hanya fallback saat `hls` tidak bisa diambil, atau saat
+  halaman penyedia memblokir embed.
+- Server `turbovip` saat ini tidak tersedia (domain upstream mati); UI otomatis
+  beralih ke server lain yang bisa diputar.
 
-Proxy:
+### `GET /stream/:token`
+
+Proxy media untuk playlist, segmen, dan key HLS. Playlist `.m3u8` di-rewrite
+agar seluruh URI anak (variant, segmen, key) kembali ke `/stream/<token>`;
+segmen diteruskan apa adanya (mendukung `Range`/`206`). Token HMAC-SHA256 tidak
+dapat dipalsukan dan tidak memakai parameter query.
 
 ```bash
-curl --get --data-urlencode 'proxy=1' --data-urlencode 'url=<m3u8 atau segmen>' \
-  'http://localhost:3000/v1/stream'
+curl -I 'http://localhost:3000/stream/<token>'
 ```
+
+Isi `STREAM_SECRET` di produksi. Jika kosong, secret acak dibuat saat boot
+(token lama tidak valid setelah restart dan warning dicetak).
 
 ---
 
@@ -472,6 +471,8 @@ interface FiltersResult { groups: NavGroup[] }
 | 400 | `missing_query` | Parameter `q` pencarian tidak ada |
 | 400 | `missing_reference` | `url`/`slug` tidak ada |
 | 400 | `missing_url` | Parameter `url` untuk `/v1/stream` tidak ada |
+| 400 | `invalid_stream_token` | Token `/stream/:token` tidak valid / tanda tangan salah |
+| 410 | `stream_token_expired` | Token `/stream/:token` sudah kedaluwarsa |
 | 400 | `missing_path` | Parameter `path` untuk `/v1/filter` tidak ada |
 | 400 | `invalid_filter` | Path/`filter` tidak didukung (atau percobaan path traversal) |
 | 400 | `invalid_kind` | `kind` daftar film tidak dikenal |
@@ -487,6 +488,6 @@ interface FiltersResult { groups: NavGroup[] }
 | 502 | `cloudscraper_unreachable` | Sidecar tidak berjalan / tidak dapat dihubungi. Jalankan `./run-web.sh` (sidecar ikut otomatis) |
 | 502 | `cloudscraper_error` | Sidecar mengembalikan error lain |
 | 502 | `stream_resolve_failed` | Gagal resolve player asli dari `/api.php` |
-| 502 | `media_fetch_failed` | Gagal memuat playlist/segmen dari sumber (mode proxy) |
+| 502 | `media_fetch_failed` | Gagal memuat playlist/segmen dari sumber via `/stream/:token` |
 | 502 | `invalid_json` | Sumber tidak mengembalikan JSON valid |
 | 500 | `internal_error` | Kesalahan tak terduga |

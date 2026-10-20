@@ -45,7 +45,7 @@ suite("velmire-scraper v1 API", () => {
   let mock: Server | undefined;
   let app: FastifyInstance | undefined;
   let mockBase = "";
-
+  let signStreamToken: (url: string) => string;
   beforeAll(async () => {
     process.env.REDIS_URL = REDIS_URL;
     process.env.CLOUDSCRAPER_ENABLED = "false";
@@ -99,7 +99,9 @@ suite("velmire-scraper v1 API", () => {
         req.on("end", () => {
           const id = new URLSearchParams(body).get("id");
           res.writeHead(200, { "content-type": "application/json" });
-          res.end(JSON.stringify({ embedUrl: `${mockBase}/embed-${id}` }));
+          res.end(
+            JSON.stringify({ embedUrl: `${mockBase}/embed-${id}` }),
+          );
         });
         return;
       }
@@ -149,6 +151,7 @@ suite("velmire-scraper v1 API", () => {
     const { buildApp } = await import("../src/api/app");
     app = await buildApp();
     await app.ready();
+    ({ signStreamToken } = await import("../src/player/player"));
   }, 30000);
 
   afterAll(async () => {
@@ -306,6 +309,21 @@ suite("velmire-scraper v1 API", () => {
     expect(body.streams).toHaveLength(3);
   });
 
+  it("keeps hydrax as an iframe embed", async () => {
+    const res = await app!.inject({
+      method: "GET",
+      url: `/v1/stream?url=${encodeURIComponent(`${mockBase}/iframe3/hydrax/hydrax`)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      server: "hydrax",
+      embed: `${mockBase}/embed-hydrax`,
+      embeddable: true,
+    });
+    expect(res.json().hls).toBeUndefined();
+    expect(res.json().mp4).toBeUndefined();
+  });
+
   it("resolves a stream and flags embeddable players", async () => {
     const res = await app!.inject({
       method: "GET",
@@ -334,44 +352,35 @@ suite("velmire-scraper v1 API", () => {
     expect(res.json().error).toBe("missing_url");
   });
 
-  it("proxies and rewrites an HLS playlist through /v1/stream", async () => {
-    const res = await app!.inject({
-      method: "GET",
-      url: `/v1/stream?proxy=1&url=${encodeURIComponent(`${mockBase}/playlist.m3u8`)}`,
-    });
+  it("rewrites an HLS playlist through the signed /stream endpoint", async () => {
+    const token = signStreamToken(`${mockBase}/playlist.m3u8`);
+    const res = await app!.inject({ method: "GET", url: `/stream/${token}` });
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("application/vnd.apple.mpegurl");
-    const proxied = `/v1/stream?proxy=1&url=${encodeURIComponent(`${mockBase}/seg0.pict`)}`;
-    expect(res.body).toContain(proxied);
-    expect(res.body).toContain(
-      `/v1/stream?proxy=1&url=${encodeURIComponent(`${mockBase}/sub.m3u8`)}`,
-    );
+
+    const children = res.body
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+    expect(children).toHaveLength(2);
+    expect(children[0]).toMatch(/^\/stream\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect(children[1]).toMatch(/^\/stream\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+
+    const segment = await app!.inject({ method: "GET", url: children[0] });
+    expect(segment.statusCode).toBe(200);
+    expect(segment.headers["content-type"]).toBe("video/mp2t");
+    expect(segment.rawPayload.length).toBe(8);
   });
 
-  it("proxies media segments through the same endpoint", async () => {
-    const res = await app!.inject({
-      method: "GET",
-      url: `/v1/stream?proxy=1&url=${encodeURIComponent(`${mockBase}/seg0.pict`)}`,
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.headers["content-type"]).toBe("video/mp2t");
-    expect(res.rawPayload.length).toBe(8);
-  });
-
-  it("auto-detects the proxy role without an explicit flag", async () => {
-    const res = await app!.inject({
-      method: "GET",
-      url: `/v1/stream?url=${encodeURIComponent(`${mockBase}/seg0.pict`)}`,
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.headers["content-type"]).toBe("video/mp2t");
+  it("rejects an unsigned stream token", async () => {
+    const res = await app!.inject({ method: "GET", url: "/stream/not-a-token" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("invalid_stream_token");
   });
 
   it("reports a fetch failure for an unreachable media source", async () => {
-    const res = await app!.inject({
-      method: "GET",
-      url: `/v1/stream?proxy=1&url=${encodeURIComponent(`${mockBase}/missing.pict`)}`,
-    });
+    const token = signStreamToken(`${mockBase}/missing.pict`);
+    const res = await app!.inject({ method: "GET", url: `/stream/${token}` });
     expect(res.statusCode).toBe(502);
     expect(res.json().error).toBe("media_fetch_failed");
   });

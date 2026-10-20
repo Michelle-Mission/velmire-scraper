@@ -1,6 +1,6 @@
 import type Redis from "ioredis";
-import { config, LK21_BASE, LK21_MOVIES_BASE, LK21_POSTER_BASE, LK21_SEARCH_BASE } from "../shared/config";
-import { cacheKey, remember } from "../shared/cache";
+import { config, LK21_BASE, LK21_MOVIES_BASE, LK21_POSTER_BASE, LK21_SEARCH_BASE } from "../../shared/config";
+import { cacheKey, remember } from "../../shared/cache";
 import type {
   ContentType,
   DetailResult,
@@ -10,8 +10,8 @@ import type {
   ListItem,
   ListResult,
   TaxonomyItem,
-} from "../shared/types";
-import { fetchJson, fetchPage, resolveFinalUrl, ScrapeError, type FetchedPage } from "./http";
+} from "../../shared/types";
+import { fetchJson, fetchPage, resolveFinalUrl, ScrapeError, type FetchedPage } from "../../http/http";
 import {
   parseDetail,
   parseEpisode,

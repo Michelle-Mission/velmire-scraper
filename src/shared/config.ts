@@ -89,6 +89,14 @@ const schema = z.object({
   CLOUDSCRAPER_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
 
   CACHE_TTL_SECONDS: z.coerce.number().int().min(0).default(1800),
+
+  /** Secret used to sign `/stream/:token` URLs. Set this in production. */
+  STREAM_SECRET: z.string().default(""),
+  /** Lifetime of a signed stream URL. */
+  STREAM_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(21600),
+  /** Public origin used when returning absolute stream URLs (optional). */
+  PUBLIC_BASE_URL: z.string().default(""),
+
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   CORS_ORIGIN: z.string().default("*"),

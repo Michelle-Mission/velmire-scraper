@@ -28,15 +28,19 @@ pencarian, detail, dan link streaming/episode. Dibangun dengan TypeScript
 
 - **Frontend** (`web/`) — UI Bootstrap 5 (aset lokal, tanpa CDN) + JS tanpa build
   step, disajikan oleh API. Klik judul membuka detail in-app (`/v1/movie`) lalu
-  tombol **Nonton** memakai `/v1/stream`: bila provider punya HLS langsung
-  (server `p2p`) diputar via `<video>` + hls.js, dengan playlist & segmen
-  di-proxy melalui **satu** endpoint `/v1/stream` (mode `proxy=1`, same-origin,
-  auto-deteksi playlist vs segmen); jika tidak, dicoba embed. Genre/negara
-  dirender sebagai chip filter (bukan kartu), dengan toggle situs Film/Series.
+  tombol **Nonton** memakai `/v1/stream`: server me-resolve HLS untuk `p2p`
+  maupun `cast` (PoW `cast` diselesaikan server-side) dan mengembalikan URL
+  same-origin bertanda tangan `/stream/<token>`. Playlist/segmen di-proxy lewat
+  endpoint itu (rewrite otomatis, dukungan `Range`/seek); UI memutar HLS dengan
+  hls.js. Bila media tidak tersedia, UI jatuh ke iframe embed (dengan
+  handshake `moonwalk-embed-context` untuk `cast`). Genre/negara dirender
+  sebagai chip filter (bukan kartu), dengan toggle situs Film/Series.
   Tab **API** menyediakan eksplorer endpoint.
-- **API** (`src/api/`) — Fastify, semua endpoint di bawah `/v1`.
-- **Scraper** (`src/lk21/`) — HTTP client + parser Cheerio + service layer yang
-  meng-cache hasil ke Redis.
+- **API** (`src/api/`) — Fastify, seluruh endpoint `/v1/*` + proxy `/stream/:token` (HLS).
+- **Scraper** (`src/scraper/lk21/`) — parser Cheerio + service layer yang
+  meng-cache hasil ke Redis; HTTP client di `src/http/`.
+- **Player** (`src/player/`) — resolver player (`p2p`/`cast`), PoW cast, dan
+  proxy HLS bertanda tangan.
 - **Shared** (`src/shared/`) — konfigurasi, cache, tipe, URL guard, koneksi Redis.
 - **Sidecar** (`services/cloudscraper/`) — layanan Python `cloudscraper` (`POST /fetch`).
 
@@ -105,6 +109,9 @@ Semua lewat environment (lihat `.env.example`):
 | `CLOUDSCRAPER_DELAY` | `0` | Jeda (detik) saat menyelesaikan challenge |
 | `CLOUDSCRAPER_TOKEN` | _(kosong)_ | Token `X-Auth-Token` antara API dan sidecar |
 | `CACHE_TTL_SECONDS` | `1800` | TTL cache |
+| `STREAM_SECRET` | _(acak saat boot)_ | Secret HMAC untuk token `/stream/:token`; isi di produksi |
+| `STREAM_TOKEN_TTL_SECONDS` | `21600` | Masa berlaku token stream |
+| `PUBLIC_BASE_URL` | _(kosong)_ | Base absolut untuk `hls` (mis. `https://api.example.com`); kosong = relatif |
 | `MAX_PAGES_PER_REQUEST` | `20` | Batas `pages` per request |
 | `DEFAULT_LIST_LIMIT` | `24` | `limit` default |
 
@@ -150,7 +157,8 @@ Base path: `/v1`. Detail lengkap ada di [`docs/API.md`](docs/API.md).
 | `GET /v1/year/:year` | Konten tv9 per tahun |
 | `GET /v1/movie?url=\|?slug=` | Detail film/series |
 | `GET /v1/episode?url=\|?slug=` | Detail episode |
-| `GET /v1/stream?url=` | Resolve player (`iframe3`) → info + `hls`; atau proxy media (`proxy=1`): rewrite playlist / byte segmen (dukung Range) |
+| `GET /v1/stream?url=` | Resolve player (`iframe3`) → info + `hls` (same-origin bertanda tangan) |
+| `GET /stream/:token` | Proxy playlist/segmen/key HLS (dukung Range/seek) |
 | `GET /v1/genres` | Daftar genre |
 | `GET /v1/countries` | Daftar negara |
 

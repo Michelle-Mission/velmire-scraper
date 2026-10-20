@@ -14,7 +14,7 @@ import type {
   SeasonGroup,
   StreamSource,
   TaxonomyItem,
-} from "../shared/types";
+} from "../../shared/types";
 
 type CheerioAPI = cheerio.CheerioAPI;
 

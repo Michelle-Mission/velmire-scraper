@@ -276,6 +276,27 @@ const watchExternal = document.getElementById("watch-external");
 
 const streamCache = new Map();
 let hlsInstance = null;
+let watchEmbedOrigin = "";
+
+// The cast/Byse embed page asks its parent for context before loading the
+// player. Answer with an allow-listed host so the provider does not reject
+// the iframe with "embedding from this domain is not allowed".
+window.addEventListener("message", (event) => {
+  const frameWindow = watchFrame.contentWindow;
+  if (!frameWindow || event.source !== frameWindow) return;
+  if (watchEmbedOrigin !== "https://mfw09.org") return;
+  const data = event.data;
+  if (!data || data.type !== "moonwalk-embed-context-request") return;
+  frameWindow.postMessage(
+    {
+      type: "moonwalk-embed-context",
+      host: "videonode.de",
+      referrer: "https://videonode.de/",
+      parentFrame: "https://videonode.de/",
+    },
+    watchEmbedOrigin || "https://mfw09.org",
+  );
+});
 
 async function getStreamInfo(url) {
   if (streamCache.has(url)) return streamCache.get(url);
@@ -290,12 +311,9 @@ async function getStreamInfo(url) {
   }
 }
 
-function proxyHls(url) {
-  return `/v1/stream?proxy=1&url=${encodeURIComponent(url)}`;
-}
-
 function resetWatch() {
-  watchFrame.src = "";
+  watchFrame.src = "about:blank";
+  watchEmbedOrigin = "";
   if (hlsInstance) {
     hlsInstance.destroy();
     hlsInstance = null;
@@ -316,7 +334,8 @@ function showWatchMessage(node) {
 }
 
 function playHls(info) {
-  const source = proxyHls(info.hls);
+  const source = info.hls;
+  watchStage.classList.add("d-none");
   watchVideoStage.classList.remove("d-none");
   watchNote.textContent = `server: ${info.server} · hls`;
   watchExternal.href = info.hls;
@@ -347,7 +366,30 @@ function playHls(info) {
   }
 }
 
-async function startWatch(title, stream) {
+function embedWatch(info) {
+  watchEmbedOrigin = new URL(info.embed).origin;
+  watchVideoStage.classList.add("d-none");
+  watchStage.classList.remove("d-none");
+  watchFrame.src = info.embed;
+  watchExternal.href = info.embed;
+  watchNote.textContent = `server: ${info.server}`;
+}
+
+async function playFallback(title, stream, streams) {
+  if (stream.server !== "turbovip") return false;
+  for (const alternative of streams) {
+    if (alternative.url === stream.url || alternative.server === "turbovip") continue;
+    const info = await getStreamInfo(alternative.url);
+    if (info && (info.hls || info.embeddable)) {
+      await startWatch(title, alternative, streams);
+      watchNote.textContent = `server: ${alternative.server} · turbovip tidak tersedia`;
+      return true;
+    }
+  }
+  return false;
+}
+
+async function startWatch(title, stream, streams = []) {
   watchTitle.textContent = `${title} — ${stream.server}`;
   watchNote.textContent = "menyiapkan…";
   watchExternal.href = stream.url;
@@ -360,17 +402,23 @@ async function startWatch(title, stream) {
     return;
   }
   if (info && info.embeddable) {
-    watchStage.classList.remove("d-none");
-    watchFrame.src = info.embed;
-    watchExternal.href = info.embed;
-    watchNote.textContent = `server: ${info.server}`;
+    embedWatch(info);
     return;
   }
+  if (await playFallback(title, stream, streams)) return;
 
+  const dead = stream.server === "turbovip";
   showWatchMessage([
     h("div", { class: "alert alert-warning d-inline-block text-start mb-0" },
-      h("strong", { text: "Server ini tidak bisa diputar inline." }),
-      h("div", { class: "small", text: info && info.error ? info.error : "Penyedia membatasi pemutaran di luar situsnya (X-Frame-Options)." }),
+      h("strong", { text: dead ? "Server turbovip tidak tersedia." : "Server ini tidak bisa diputar inline." }),
+      h("div", {
+        class: "small",
+        text: dead
+          ? "Domain penyedia (turbonewvid.com) sudah tidak aktif; ini juga memengaruhi pemutar di situs sumber."
+          : info && info.error
+            ? info.error
+            : "Penyedia membatasi pemutaran di luar situsnya (X-Frame-Options).",
+      }),
       h("div", { class: "small mt-1", text: "Coba server lain di daftar (biasanya p2p)." }),
     ),
   ]);
@@ -387,7 +435,7 @@ function streamButtons(streams, defaultUrl, title) {
       class: `btn btn-sm ${isDefault ? "btn-primary" : "btn-outline-light"}`,
       type: "button",
       text: `Nonton · ${stream.server}`,
-      onclick: () => startWatch(title, stream),
+      onclick: () => startWatch(title, stream, streams),
     });
     wrap.append(button);
     void getStreamInfo(stream.url).then((info) => {
@@ -539,13 +587,9 @@ function renderSeriesBody(detail) {
   });
 
   renderSeason(seasons[0]);
-  detailBody.append(
-    h("h6", { text: "Episode" }),
-    seasons.length > 1 ? seasonBar : null,
-    epGrid,
-    h("hr"),
-    streamArea,
-  );
+  detailBody.append(h("h6", { text: "Episode" }));
+  if (seasons.length > 1) detailBody.append(seasonBar);
+  detailBody.append(epGrid, h("hr"), streamArea);
 
   const first = seasons[0].episodes[0];
   if (first) void pickEpisode(first.slug, first.title);
