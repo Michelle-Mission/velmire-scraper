@@ -47,15 +47,12 @@ const schema = z.object({
 
   /** Base URL of the single LK21 source to scrape (tv9 / Nontondrama). */
   LK21_URL: z.string().default("https://tv9.nontondrama.my"),
-  /**
-   * Base URL of the LK21 Movies portal (`d21.team`). It is a landing host that
-   * links to the live movie site; listing requests follow it automatically.
-   */
-  LK21_MOVIES_URL: z.string().default("https://d21.team"),
-  /** Base URL that serves the JSON search endpoint (`search.php`). */
-  LK21_SEARCH_URL: z.string().default("https://gudangvape.com/"),
-  /** Base URL for relative poster paths returned by the search API. */
-  LK21_POSTER_URL: z.string().default("https://poster.assetsy.de/wp-content/uploads/"),
+  /** Base URL used by the movie portal endpoints (same tv9 source). */
+  LK21_MOVIES_URL: z.string().default("https://tv9.nontondrama.my"),
+  /** Base URL that serves the search endpoint (fallback: tv9 sitemap). */
+  LK21_SEARCH_URL: z.string().default("https://tv9.nontondrama.my/"),
+  /** Base URL for relative poster paths. */
+  LK21_POSTER_URL: z.string().default("https://tv9.nontondrama.my/wp-content/uploads/"),
   /**
    * Optional explicit `Referer` for the search API. When empty it is
    * auto-detected from the active mirror reached via `LK21_URL` redirects.

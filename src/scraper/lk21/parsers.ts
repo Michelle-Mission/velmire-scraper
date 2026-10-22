@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
+import { LK21_BASE } from "../../shared/config";
 import type {
   ContentType,
   DetailResult,
@@ -79,7 +80,21 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-function imageOf($: CheerioAPI, poster: AnyNode): string | null {
+function tv9Image(raw: string | null | undefined, base: string): string | null {
+  const absolute = absUrl(raw, base);
+  if (!absolute) return null;
+  try {
+    const url = new URL(absolute);
+    if (url.hostname === "poster.assetsy.de") {
+      return new URL(`${url.pathname}${url.search}`, LK21_BASE).toString();
+    }
+  } catch {
+    return absolute;
+  }
+  return absolute;
+}
+
+function imageOf($: CheerioAPI, poster: AnyNode, base: string): string | null {
   const $poster = $(poster);
   const img = $poster.find("img").first();
   const candidate =
@@ -88,7 +103,7 @@ function imageOf($: CheerioAPI, poster: AnyNode): string | null {
     $poster.find("source[type='image/jpeg']").attr("srcset") ||
     $poster.find("source").first().attr("srcset");
   if (!candidate) return null;
-  return candidate.trim().split(/\s+/)[0] ?? null;
+  return tv9Image(candidate.trim().split(/\s+/)[0], base);
 }
 
 function parseListItem($: CheerioAPI, article: AnyNode, base: string): ListItem | null {
@@ -132,7 +147,7 @@ function parseListItem($: CheerioAPI, article: AnyNode, base: string): ListItem 
     slug,
     url,
     type,
-    poster: imageOf($, $poster.get(0) as AnyNode),
+    poster: imageOf($, $poster.get(0) as AnyNode, base),
     rating: toNumber(
       $poster.find("[itemprop='ratingValue']").first().text() ||
         $poster.find(".rating").first().text(),
@@ -411,7 +426,7 @@ export function parseDetail(html: string, url: string, base: string): DetailResu
     slug,
     url: detailUrl,
     type: isSeries ? "series" : "movie",
-    poster: watch?.poster ? absUrl(watch.poster, base) : null,
+    poster: watch?.poster ? tv9Image(watch.poster, base) : null,
     rating: toNumber(typeof watch?.rating === "number" ? String(watch.rating) : watch?.rating),
     year: watch?.year ?? null,
     duration: watch?.runtime ?? runtimeTag,
@@ -468,7 +483,7 @@ export function parseEpisode(html: string, url: string, base: string): EpisodeRe
     title: $("h1").first().text().trim(),
     slug: currentSlug,
     url,
-    poster: absUrl(watch?.poster ?? preview.attr("poster"), base),
+    poster: tv9Image(watch?.poster ?? preview.attr("poster"), base),
     year: watch?.year ?? null,
     series: watch?.slug ? { title: watch.title ?? "", slug: watch.slug } : null,
     season: watch?.current_season ?? null,
@@ -495,7 +510,7 @@ const LANDING_TEXT = /jangan tertipu link lk21|landing page resmi|bookmark url t
 const LANDING_SKIP = /telegram|tiktok|insta|chord|speed|yasin/i;
 
 /**
- * Some rotating domains (e.g. `d21.team`) only serve a promo page that links to
+ * Some legacy landing domains only serve a promo page that links to
  * the real site. Detect that page and surface the real links so callers can
  * follow through instead of returning an empty detail document.
  */

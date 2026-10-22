@@ -273,7 +273,7 @@ async function aggregatedMovieList(
           ? `${LK21_MOVIES_BASE}/`
           : `${LK21_MOVIES_BASE}/${path}/page/${currentPage}`;
 
-      // `d21.team` is a landing host: follow it to the live movie site.
+      // Legacy landing hosts: follow them to the live movie site.
       const landing = await fetchPage(requested);
       const info = parseLanding(landing.html, landing.finalUrl);
       const target =
@@ -302,7 +302,7 @@ async function aggregatedMovieList(
   });
 }
 
-/** Scrape the movie portal linked from the navbar (`d21.team → lk21.de`). */
+/** Scrape the movie portal (tv9, with legacy landing support). */
 export function getMovieList(
   redis: Redis,
   kind: MovieListKind,
@@ -336,7 +336,17 @@ interface SearchResponse {
 
 function posterFromSearch(poster: string | undefined): string | null {
   if (!poster) return null;
-  if (/^https?:\/\//i.test(poster)) return poster;
+  if (/^https?:\/\//i.test(poster)) {
+    try {
+      const url = new URL(poster);
+      if (url.hostname === "poster.assetsy.de") {
+        return new URL(`${url.pathname}${url.search}`, LK21_BASE).toString();
+      }
+    } catch {
+      return poster;
+    }
+    return poster;
+  }
   return `${LK21_POSTER_BASE}${poster.replace(/^\/+/, "")}`;
 }
 
@@ -367,6 +377,237 @@ async function searchReferer(): Promise<string> {
   return cachedReferer;
 }
 
+const SEARCH_STOPWORDS = new Set([
+  "a", "an", "and", "at", "by", "for", "from", "in", "of", "on", "the", "to", "with",
+]);
+
+const SITEMAP_CACHE_TTL_SECONDS = 21600;
+const SITEMAP_CACHE_BUST = "v=1";
+
+function sitemapLocations(xml: string): string[] {
+  return [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((match) => match[1]);
+}
+
+function withCacheBuster(url: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}${SITEMAP_CACHE_BUST}`;
+}
+
+function searchTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !SEARCH_STOPWORDS.has(token));
+}
+
+function titleFromSlug(slug: string): string {
+  const words = slug.replace(/-\d{4}$/, "").split("-").filter(Boolean);
+  return words
+    .map((word) => (/^[a-z]/.test(word) ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(" ");
+}
+
+function yearFromSlug(slug: string): number | null {
+  const match = /-(\d{4})$/.exec(slug);
+  if (!match) return null;
+  const year = Number(match[1]);
+  return year >= 1900 && year <= 2100 ? year : null;
+}
+
+interface SitemapEntry {
+  slug: string;
+  url: string;
+}
+
+async function getPostSitemap(redis: Redis): Promise<SitemapEntry[]> {
+  const key = cacheKey(["sitemap:posts", LK21_BASE]);
+  return remember(
+    redis,
+    key,
+    async () => {
+      const index = await fetchPage(withCacheBuster(`${LK21_BASE}/sitemap.xml`), {
+        guard: true,
+      });
+      const maps = sitemapLocations(index.html).filter((url) =>
+        /\/sitemap-posts-\d+\.xml(?:\?|$)/i.test(url),
+      );
+      const seen = new Set<string>();
+      const entries: SitemapEntry[] = [];
+      for (const map of maps) {
+        const page = await fetchPage(withCacheBuster(map), { guard: true });
+        for (const loc of sitemapLocations(page.html)) {
+          try {
+            const url = new URL(loc);
+            const slug = url.pathname.replace(/^\/+|\/+$/g, "");
+            if (!slug || slug.includes("/") || seen.has(slug)) continue;
+            seen.add(slug);
+            entries.push({ slug, url: `${LK21_BASE}/${slug}` });
+          } catch {
+            // Ignore malformed sitemap entries.
+          }
+        }
+      }
+      return entries;
+    },
+    SITEMAP_CACHE_TTL_SECONDS,
+  );
+}
+
+function detailToList(detail: DetailResult): ListItem {
+  return {
+    title: detail.title,
+    slug: detail.slug,
+    url: detail.url,
+    type: detail.type,
+    poster: detail.poster,
+    rating: detail.rating,
+    year: detail.year,
+    episode: detail.totalEpisodes,
+    season: detail.totalSeasons,
+    duration: detail.duration,
+    quality: detail.quality,
+    genres: detail.genres,
+    complete: detail.status?.toLowerCase() === "complete",
+  };
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= values.length) return;
+      results[index] = await mapper(values[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/** Search tv9's own sitemap when the JSON search backend is not available. */
+async function searchSitemap(
+  redis: Redis,
+  query: string,
+  currentPage: number,
+  capped: number,
+): Promise<ListResult> {
+  const tokens = searchTokens(query);
+  if (tokens.length === 0) {
+    return { page: currentPage, pages: 1, totalPages: 0, count: 0, items: [] };
+  }
+
+  const entries = await getPostSitemap(redis);
+  const matches = entries
+    .filter((entry) => tokens.every((token) => entry.slug.includes(token)))
+    .sort((left, right) => {
+      const yearDelta = (yearFromSlug(right.slug) ?? 0) - (yearFromSlug(left.slug) ?? 0);
+      return yearDelta !== 0 ? yearDelta : left.slug.localeCompare(right.slug);
+    });
+
+  const totalPages = Math.ceil(matches.length / capped);
+  const offset = (currentPage - 1) * capped;
+  const selected = matches.slice(offset, offset + capped);
+  const enriched = await mapWithConcurrency(selected.slice(0, 24), 4, async (entry) => {
+    try {
+      return detailToList(await getMovie(redis, { slug: entry.slug }));
+    } catch {
+      return {
+        title: titleFromSlug(entry.slug),
+        slug: entry.slug,
+        url: entry.url,
+        type: "movie",
+        poster: null,
+        rating: null,
+        year: yearFromSlug(entry.slug),
+        episode: null,
+        season: null,
+        duration: null,
+        quality: null,
+        genres: [],
+        complete: false,
+      } satisfies ListItem;
+    }
+  });
+  const items = [
+    ...enriched,
+    ...selected.slice(enriched.length).map((entry) => ({
+      title: titleFromSlug(entry.slug),
+      slug: entry.slug,
+      url: entry.url,
+      type: "movie" as ContentType,
+      poster: null,
+      rating: null,
+      year: yearFromSlug(entry.slug),
+      episode: null,
+      season: null,
+      duration: null,
+      quality: null,
+      genres: [],
+      complete: false,
+    })),
+  ];
+
+  return {
+    page: currentPage,
+    pages: 1,
+    totalPages,
+    count: items.length,
+    items,
+  } satisfies ListResult;
+}
+
+async function searchJson(
+  query: string,
+  currentPage: number,
+  capped: number,
+): Promise<ListResult> {
+  const url = `${LK21_SEARCH_BASE}search.php?s=${encodeURIComponent(query)}&page=${currentPage}`;
+  const data = await fetchJson<SearchResponse>(url, {
+    headers: {
+      Referer: await searchReferer(),
+      "X-Requested-With": "XMLHttpRequest",
+      Accept: "application/json, text/plain, */*",
+    },
+  });
+  const source = data.data ?? data.items ?? [];
+  const items: ListItem[] = source.map((entry) => {
+    const slug = entry.slug ?? "";
+    const type: ContentType = entry.type === "movie" ? "movie" : "series";
+    return {
+      title: entry.title ?? "",
+      slug,
+      url: `${LK21_BASE}/${slug}`,
+      type,
+      poster: posterFromSearch(entry.poster),
+      rating: toNumberOrNull(entry.rating) || null,
+      year: toNumberOrNull(entry.year),
+      episode: toPositiveIntOrNull(entry.episode),
+      season: toPositiveIntOrNull(entry.season),
+      duration: entry.runtime || null,
+      quality: entry.quality || null,
+      genres: [],
+      complete: entry.is_complete === 1,
+    } satisfies ListItem;
+  });
+
+  const totalPages = data.totalPages ?? data.total_pages ?? null;
+  const limited = items.slice(0, capped);
+  return {
+    page: currentPage,
+    pages: 1,
+    totalPages,
+    count: limited.length,
+    items: limited,
+  } satisfies ListResult;
+}
+
 export function search(
   redis: Redis,
   query: string,
@@ -377,44 +618,12 @@ export function search(
   const capped = clampLimit(limit);
   const key = cacheKey(["search", query, currentPage, capped]);
   return remember(redis, key, async () => {
-    const url = `${LK21_SEARCH_BASE}search.php?s=${encodeURIComponent(query)}&page=${currentPage}`;
-    const data = await fetchJson<SearchResponse>(url, {
-      headers: {
-        Referer: await searchReferer(),
-        "X-Requested-With": "XMLHttpRequest",
-        Accept: "application/json, text/plain, */*",
-      },
-    });
-    const source = data.data ?? data.items ?? [];
-    const items: ListItem[] = source.map((entry) => {
-      const slug = entry.slug ?? "";
-      const type: ContentType = entry.type === "movie" ? "movie" : "series";
-      return {
-        title: entry.title ?? "",
-        slug,
-        url: `${LK21_BASE}/${slug}`,
-        type,
-        poster: posterFromSearch(entry.poster),
-        rating: toNumberOrNull(entry.rating) || null,
-        year: toNumberOrNull(entry.year),
-        episode: toPositiveIntOrNull(entry.episode),
-        season: toPositiveIntOrNull(entry.season),
-        duration: entry.runtime || null,
-        quality: entry.quality || null,
-        genres: [],
-        complete: entry.is_complete === 1,
-      } satisfies ListItem;
-    });
-
-    const totalPages = data.totalPages ?? data.total_pages ?? null;
-    const limited = items.slice(0, capped);
-    return {
-      page: currentPage,
-      pages: 1,
-      totalPages,
-      count: limited.length,
-      items: limited,
-    } satisfies ListResult;
+    try {
+      return await searchJson(query, currentPage, capped);
+    } catch (error) {
+      if (!(error instanceof ScrapeError && error.code === "invalid_json")) throw error;
+      return searchSitemap(redis, query, currentPage, capped);
+    }
   });
 }
 

@@ -97,7 +97,7 @@ function spinner() {
 function renderCard(item) {
   const media = h("div", { class: "poster-media" });
   if (item.poster) {
-    media.append(h("img", { src: item.poster, alt: item.title || "", loading: "lazy" }));
+    media.append(h("img", { src: item.poster, alt: item.title || "", loading: "lazy", referrerpolicy: "no-referrer" }));
   } else {
     media.append(h("div", { class: "poster-empty", text: "no poster" }));
   }
@@ -475,7 +475,7 @@ function metaBadges(detail) {
 
 function detailHeader(detail) {
   const poster = detail.poster
-    ? h("img", { class: "detail-poster", src: detail.poster, alt: detail.title || "" })
+    ? h("img", { class: "detail-poster", src: detail.poster, alt: detail.title || "", referrerpolicy: "no-referrer" })
     : h("div", { class: "detail-poster poster-empty", text: "no poster" });
 
   const info = h(

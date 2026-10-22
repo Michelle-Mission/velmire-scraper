@@ -34,7 +34,7 @@ describe("parseList", () => {
       slug: "doctor-x-age-white-mafia-2026",
       url: `${BASE}/doctor-x-age-white-mafia-2026`,
       type: "series",
-      poster: "https://poster.assetsy.de/film-doctor-x.jpg",
+      poster: "https://tv9.nontondrama.my/film-doctor-x.jpg",
       rating: 9.5,
       year: 2026,
       episode: 4,

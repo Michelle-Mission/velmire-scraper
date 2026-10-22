@@ -22,7 +22,7 @@ Semua endpoint berada di bawah prefix `/v1`.
 - [Daftar film (portal)](#daftar-film-portal)
 - [Pencarian](#pencarian)
 - [Genre / Country / Year](#genre--country--year)
-- [Detail film & series](#detail-film--series)
+- [Detail film dan series](#detail-film-dan-series)
 - [Detail episode](#detail-episode)
 - [Resolver & proxy stream](#resolver--proxy-stream)
 - [Taxonomy](#taxonomy)
@@ -58,7 +58,7 @@ dipotong sesuai `limit`. Semua hasil di-cache di Redis selama
   "status": "ok",
   "redis": "ok",
   "cloudscraper": "ok",
-  "source": "https://www.lk21.de",
+  "source": "https://tv9.nontondrama.my",
   "uptime": 12.34,
   "timestamp": "2026-01-01T00:00:00.000Z"
 }
@@ -83,17 +83,15 @@ Query: `limit` (opsional, membatasi jumlah item per section),
 > Parameter `type` tetap diterima demi kompatibilitas, tetapi beranda yang
 > tersedia adalah beranda tv9.
 >
-> Jika slug film dialihkan ke halaman promo/landing (mis. `d21.team`), API
-> mengikuti tautan ke situs asli sekali untuk mengambil data, lalu tetap
-> memancarkan URL `tv9`. Hal yang sama berlaku untuk
-> `?url=` yang berisi tautan landing.
+> Mekanisme promo/landing lama masih didukung, tetapi konfigurasi default
+> memakai tv9 untuk film, pencarian, dan poster.
 
 ```json
 {
   "sections": [
     {
       "title": "Series Terbaru",
-      "seeAll": "https://www.lk21.de/latest-series",
+      "seeAll": "https://tv9.nontondrama.my/latest-series",
       "type": "latest-series",
       "count": 12,
       "items": [ /* ListItem[] */ ]
@@ -157,7 +155,7 @@ mengembalikan struktur menu (Genre, Lk21, Series, Negara, Tahun, + More) beserta
     {
       "label": "Lk21",
       "items": [
-        { "label": "Film Terbaru", "url": "https://d21.team/latest", "path": "latest", "slug": "latest", "kind": "movie" }
+        { "label": "Film Terbaru", "url": "https://tv9.nontondrama.my/latest", "path": "latest", "slug": "latest", "kind": "movie" }
       ]
     }
   ]
@@ -187,10 +185,9 @@ ditolak dengan `400 invalid_filter`.
 
 ## Daftar film (portal)
 
-Navbar **Lk21** mengarah ke portal film `d21.team` (halaman landing yang
-meneruskan ke situs film live). API mengikuti landing tersebut otomatis dan
-mengembalikan item dengan URL tv9 agar detail tetap bisa diambil lewat
-`/v1/movie?slug=...`.
+Daftar film memakai sumber tv9 yang sama (`LK21_MOVIES_URL`). Halaman landing
+lama masih didukung, tetapi item tetap dikembalikan dengan URL tv9 agar detail
+bisa diambil lewat `/v1/movie?slug=...`.
 
 | Endpoint | Keterangan |
 | --- | --- |
@@ -200,7 +197,7 @@ mengembalikan item dengan URL tv9 agar detail tetap bisa diambil lewat
 | `GET /v1/movies/top` | Film unggulan hari ini |
 
 Semua menerima query pagination dan mengembalikan `ListResult`.
-`kind` yang tidak dikenal → `400 invalid_kind`.
+`kind` yang tidak dikenal menghasilkan `400 invalid_kind`.
 
 ---
 
@@ -220,6 +217,12 @@ curl 'http://localhost:3000/v1/search?q=doctor+x&page=1'
 
 Response: `ListResult`.
 
+Pencarian memakai `search.php` jika endpoint itu mengembalikan JSON. Pada tv9,
+`search.php` mengarah ke halaman HTML, sehingga API memakai sitemap tv9 sebagai
+fallback. Daftar slug disimpan di cache selama 6 jam. Hasil pencarian kemudian
+dicocokkan dan diperkaya dengan detail tv9 untuk melengkapi poster, tipe, dan
+rating. Panggilan pertama bisa lebih lambat karena sitemap harus diambil.
+
 ---
 
 ## Genre / Country / Year
@@ -237,7 +240,7 @@ memilih situs film atau series, lalu mengembalikan `ListResult`.
 
 ---
 
-## Detail film & series
+## Detail film dan series
 
 ### `GET /v1/movie`
 
@@ -250,7 +253,7 @@ Ambil detail berdasarkan `slug` **atau** `url` (salah satu wajib).
 
 ```bash
 curl 'http://localhost:3000/v1/movie?slug=kate-2026'
-curl --get --data-urlencode 'url=https://www.lk21.de/kate-2026' \
+curl --get --data-urlencode 'url=https://tv9.nontondrama.my/kate-2026' \
   'http://localhost:3000/v1/movie'
 ```
 
@@ -340,7 +343,7 @@ Isi `STREAM_SECRET` di produksi. Jika kosong, secret acak dibuat saat boot
 
 ```json
 [
-  { "name": "Action", "slug": "action", "url": "https://www.lk21.de/genre/action" }
+  { "name": "Action", "slug": "action", "url": "https://tv9.nontondrama.my/genre/action" }
 ]
 ```
 
