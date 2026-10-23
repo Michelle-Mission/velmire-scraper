@@ -43,6 +43,8 @@ Web UI statis (/)  +  API Fastify (/v1, /stream)
 ## Menjalankan
 
 Kebutuhan: Node.js 20 atau lebih baru, Redis, dan Python 3 untuk sidecar.
+Di Ubuntu/Debian, pasang juga `python3-venv`; script memakai `.venv` bila
+`cloudscraper` tidak tersedia di Python sistem.
 
 Cara termudah, semua service dinyalakan otomatis:
 

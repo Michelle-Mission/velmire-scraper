@@ -95,16 +95,30 @@ urllib.request.urlopen(sys.argv[1], timeout=2).read()
 PY
 }
 
+VENV_DIR="$PWD/.venv"
+PYTHON_BIN="python3"
+
+# Ubuntu/Debian menolak pip system-wide (PEP 668). Pakai venv bila package
+# cloudscraper belum tersedia di Python sistem.
+if ! "$PYTHON_BIN" -c "import cloudscraper" >/dev/null 2>&1; then
+  if [ ! -x "$VENV_DIR/bin/python" ]; then
+    log "Membuat virtualenv Python di $VENV_DIR..."
+    "$PYTHON_BIN" -m venv "$VENV_DIR" || die "Gagal membuat virtualenv. Install python3-venv lalu coba lagi."
+  fi
+  PYTHON_BIN="$VENV_DIR/bin/python"
+  if ! "$PYTHON_BIN" -c "import cloudscraper" >/dev/null 2>&1; then
+    log "Memasang dependency cloudscraper..."
+    "$PYTHON_BIN" -m pip install --disable-pip-version-check -r services/cloudscraper/requirements.txt >/dev/null \
+      || die "Gagal memasang dependency cloudscraper."
+  fi
+fi
+
 SIDECAR_PID=""
 if cloudscraper_up; then
   log "Cloudscraper sudah jalan di $SIDECAR_URL"
 else
-  if ! python3 -c "import cloudscraper" >/dev/null 2>&1; then
-    log "Memasang dependency cloudscraper..."
-    python3 -m pip install -r services/cloudscraper/requirements.txt >/dev/null
-  fi
   log "Menjalankan sidecar cloudscraper di port $SIDECAR_PORT (log: $RUN_DIR/cloudscraper.log)"
-  python3 services/cloudscraper/main.py >"$RUN_DIR/cloudscraper.log" 2>&1 &
+  "$PYTHON_BIN" services/cloudscraper/main.py >"$RUN_DIR/cloudscraper.log" 2>&1 &
   SIDECAR_PID=$!
   for _ in $(seq 1 30); do
     cloudscraper_up && break
